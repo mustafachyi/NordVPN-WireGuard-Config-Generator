@@ -6,6 +6,7 @@ This repository contains a set of Python scripts designed to automate the proces
 
 - [File Descriptions](#file-descriptions)
 - [Features](#features)
+- [Obtaining Access Token](#obtaining-access-token)
 - [Usage](#usage)
 - [Dependencies](#dependencies)
 - [Disclaimer](#disclaimer)
@@ -21,6 +22,14 @@ This repository contains a set of Python scripts designed to automate the proces
 - **Server Categorization**: The script organizes servers by countries and cities, providing a structured view of all available NordVPN servers. This makes it easier for users to find and select their preferred server location.
 
 - **ZIP Compression**: The script has an option to compress the generated configuration files into a ZIP archive, making it convenient for users to download and manage the files.
+
+## Obtaining Access Token
+
+To use these scripts, you will need an access token from NordVPN. You can obtain this token by following these steps:
+
+1. Log in to your NordVPN account at [Nord Account](https://my.nordaccount.com/login/).
+2. Navigate to the [Manual Configuration](https://my.nordaccount.com/dashboard/nordvpn/manual-configuration/) section.
+3. Here, you will find your access token. Keep it safe and do not share it with others.
 
 ## Usage
 
