@@ -1,6 +1,6 @@
 # NordVPN WireGuard Configuration Generator
 
-This repository contains a set of Python scripts designed to automate the process of generating WireGuard configuration files for NordVPN servers.
+This repository contains a set of Python scripts designed to automate the process of generating WireGuard configuration files for all NordVPN servers.
 
 ## Table of Contents
 
