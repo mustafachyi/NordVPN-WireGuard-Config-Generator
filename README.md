@@ -1,45 +1,45 @@
 # NordVPN WireGuard Configuration Generator
 
-This Python script generates WireGuard configuration files for NordVPN servers. It fetches the server data from NordVPN's API, generates the configuration files, and optionally zips them for easy distribution.
+This repository contains a set of Python scripts designed to automate the process of generating WireGuard configuration files for NordVPN servers.
 
-## Requirements
+## Table of Contents
 
-- Python 3.6 or higher
-- `requests` library
+- [File Descriptions](#file-descriptions)
+- [Usage](#usage)
+- [Dependencies](#dependencies)
+- [Disclaimer](#disclaimer)
 
-## Installation
+## File Descriptions
 
-1. Clone the repository:
-   ```
-   git clone https://github.com/yourusername/yourrepository.git
-   ```
-2. Install the required Python libraries:
-   ```
-   pip install requests
-   ```
+- `extract_key.py`: This script interacts with the NordVPN API to extract the Nordlynx private key. It requires an access token as input and outputs the private key.
+
+- `main.py`: This script is responsible for generating WireGuard configuration files for NordVPN servers. It requires the private key (obtained from `extract_key.py`) as input and has an option to compress the configuration files into a ZIP archive.
 
 ## Usage
 
-1. Run the script:
-   ```
-   python main.py
-   ```
-2. When prompted, enter your private key.
-3. When prompted, enter 'yes' if you want the configuration files to be zipped, 'no' otherwise.
+1. Execute `extract_key.py` to retrieve your Nordlynx private key. You will need to provide your NordVPN access token.
 
-## Functionality
+```bash
+python extract_key.py
+```
 
-The script performs the following tasks:
+2. Execute `main.py` to generate the WireGuard configuration files. You will need to provide the private key obtained from the previous step and specify whether you want the configuration files to be compressed into a ZIP archive.
 
-- Fetches server data from NordVPN's API.
-- Generates WireGuard configuration files for each server.
-- Saves the configuration files in a directory structure based on the server's country and city.
-- Optionally zips the configuration files for each city.
+```bash
+python main.py
+```
 
-## Contributing
+## Dependencies
 
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+This project is built with Python 3 and utilizes the following libraries:
 
-## License
+- `requests`
+- `logging`
+- `zipfile`
+- `concurrent.futures`
 
-[MIT](https://choosealicense.com/licenses/mit/)
+Please ensure these dependencies are installed before executing the scripts.
+
+## Disclaimer
+
+This project is independently developed and is not affiliated with NordVPN. Please use it responsibly and at your own risk.
