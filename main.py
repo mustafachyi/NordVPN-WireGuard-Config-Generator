@@ -96,13 +96,19 @@ def save_config(private_key: str, server_info: Dict, filepath: str = None):
         logging.error(f"Error occurred while saving config: {e}")
     return None
 
-def zip_configs(city_path: str):
-    zipf = zipfile.ZipFile(f'{city_path}.zip', 'w', zipfile.ZIP_DEFLATED)
-    for root, dirs, files in os.walk(city_path):
-        for file in files:
-            zipf.write(os.path.join(root, file), arcname=file)
-    zipf.close()
-    logging.info(f"Zipped configuration files for {city_path}")
+def zip_configs(city_folder: str):
+    city_name = os.path.basename(city_folder)
+    zip_file_path = f"{city_folder}.zip"
+    
+    with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for root, dirs, files in os.walk(city_folder):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = os.path.relpath(file_path, start=os.path.dirname(city_folder))
+                zipf.write(file_path, arcname=arcname)
+    
+    logging.info(f"Zipped configuration files for {city_name} into {zip_file_path}")
+
 
 def calculate_distance(user_latitude, user_longitude, server_latitude, server_longitude):
     # Convert decimal degrees to radians
@@ -137,6 +143,19 @@ def get_user_location():
         logging.error(f'Other error occurred: {err}')
         raise
 
+def zip_best_configs():
+    best_configs_path = 'best_configs'
+    zipf = zipfile.ZipFile(f'{best_configs_path}.zip', 'w', zipfile.ZIP_DEFLATED)
+    for root, dirs, files in os.walk(best_configs_path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            arcname = os.path.relpath(file_path, start=best_configs_path)
+            zipf.write(file_path, arcname=arcname)
+    zipf.close()
+    logging.info("Zipped best configuration files")
+
+# The rest of the functions remain unchanged
+
 def main():
     access_token = input("Enter your access token: ")
     private_key = get_nordlynx_private_key(access_token)
@@ -150,11 +169,22 @@ def main():
             user_latitude, user_longitude = get_user_location()
             sorted_servers = sort_servers(all_servers, user_latitude, user_longitude)
             with ThreadPoolExecutor() as executor:
-                city_paths = list(set(executor.map(save_config, [private_key]*len(sorted_servers),sorted_servers)))
+                city_paths = list(set(executor.map(save_config, [private_key]*len(sorted_servers), sorted_servers)))
                 city_paths = [path for path in city_paths if path is not None]
                 if zip_files == 'yes':
+                    # Create a set to store unique city folder paths
+                    unique_city_folders = set()
                     for city_path in city_paths:
-                        zip_configs(city_path)
+                        # Extract the city folder path and add it to the set
+                        city_folder = os.path.dirname(city_path)
+                        unique_city_folders.add(city_folder)
+                    
+                    # Zip the contents of each unique city folder
+                    for city_folder in unique_city_folders:
+                        zip_configs(city_folder)
+                    
+                    # Zip the best configurations if needed
+                    zip_best_configs()
 
             # Group servers by country and city
             servers_by_location = {}
