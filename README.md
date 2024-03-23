@@ -1,61 +1,73 @@
 # NordVPN WireGuard Configuration Generator
 
-This repository contains a set of Python scripts designed to automate the process of generating WireGuard configuration files for all NordVPN servers. A unique feature of this project is its ability to categorize servers by countries and cities, making it easier for users to find and select their preferred server location.
+Welcome to the NordVPN WireGuard Configuration Generator! This powerful Python script empowers users to effortlessly generate WireGuard configuration files tailored to their preferences from the vast array of NordVPN servers. Whether you're seeking optimal performance, specific locations, or enhanced organization, this tool has you covered.
 
 ## Table of Contents
 
-- [File Descriptions](#file-descriptions)
-- [Features](#features)
-- [Obtaining Access Token](#obtaining-access-token)
+- [Introduction](#introduction)
+- [Key Features](#key-features)
 - [Usage](#usage)
+- [Installation](#installation)
 - [Dependencies](#dependencies)
-- [Disclaimer](#disclaimer)
+- [Contributing](#contributing)
+- [License](#license)
 
-## File Descriptions
+## Introduction
 
-- `extract_key.py`: This script interacts with the NordVPN API to extract the Nordlynx private key. It requires an access token as input and outputs the private key.
+Are you tired of manual configuration hassles when setting up NordVPN with WireGuard? Look no further! Our solution streamlines the process, enabling you to effortlessly access NordVPN's extensive server network with just a few simple commands.
 
-- `main.py`: This script is responsible for generating WireGuard configuration files for NordVPN servers. It requires the private key (obtained from `extract_key.py`) as input and has an option to compress the configuration files into a ZIP archive.
+## Key Features
 
-## Features
+### Dynamic Server Sorting
+- Seamlessly sorts NordVPN servers based on load and proximity to the user's location, ensuring optimal performance and reliability.
 
-- **Server Categorization**: The script organizes servers by countries and cities, providing a structured view of all available NordVPN servers. This makes it easier for users to find and select their preferred server location.
+### Intuitive Organization
+- Categorizes servers by country and city, providing users with a structured view of NordVPN's vast network, making it easier to find and select preferred server locations.
 
-- **ZIP Compression**: The script has an option to compress the generated configuration files into a ZIP archive, making it convenient for users to download and manage the files.
+### Best Server Selection
+- Identifies and saves the best server configuration for each city in every country, allowing users to quickly connect to the most optimal servers with confidence.
 
-## Obtaining Access Token
-
-To use these scripts, you will need an access token from NordVPN. You can obtain this token by following these steps:
-
-1. Log in to your NordVPN account at [Nord Account](https://my.nordaccount.com/login/).
-2. Navigate to the [Manual Configuration](https://my.nordaccount.com/dashboard/nordvpn/manual-configuration/) section.
-3. Here, you will find your access token. Keep it safe and do not share it with others.
+### Zip Compression
+- Offers the convenience of compressing generated configuration files into a ZIP archive, simplifying download and management tasks.
 
 ## Usage
 
-1. Execute `extract_key.py` to retrieve your Nordlynx private key. You will need to provide your NordVPN access token.
+Using the NordVPN WireGuard Configuration Generator is straightforward:
 
-```bash
-python extract_key.py
-```
-
-2. Execute `main.py` to generate the WireGuard configuration files. You will need to provide the private key obtained from the previous step and specify whether you want the configuration files to be compressed into a ZIP archive.
+1. Obtain your NordVPN access token from the NordVPN dashboard.
+2. Clone this repository to your local machine.
+3. Navigate to the project directory.
+4. Execute the `main.py` script, providing your access token when prompted.
+5. Optionally, specify whether you want the configuration files to be compressed into a ZIP archive.
+6. Sit back and let the script handle the rest!
 
 ```bash
 python main.py
 ```
 
+## Installation
+
+To get started, simply clone this repository to your local machine:
+
+```bash
+git clone https://github.com/yourusername/nordvpn-wireguard-config-generator.git
+```
+
 ## Dependencies
 
-This project is built with Python 3 and utilizes the following libraries:
+The NordVPN WireGuard Configuration Generator relies on the following Python libraries:
 
 - `requests`
 - `logging`
 - `zipfile`
 - `concurrent.futures`
 
-Please ensure these dependencies are installed before executing the scripts.
+Ensure these dependencies are installed before running the script.
 
-## Disclaimer
+## Contributing
 
-This project is independently developed and is not affiliated with NordVPN. Please use it responsibly and at your own risk.
+We welcome contributions from the community! Whether it's bug fixes, feature enhancements, or documentation improvements, your contributions help make this project better for everyone. Feel free to open an issue or submit a pull request.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
