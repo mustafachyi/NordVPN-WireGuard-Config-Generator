@@ -2,7 +2,6 @@ from operator import itemgetter
 import os
 import requests
 import logging
-import zipfile
 import subprocess
 import json
 from typing import Tuple, Optional, List, Dict
@@ -96,20 +95,6 @@ def save_config(private_key: str, server_info: Dict, filepath: str = None):
         logging.error(f"Error occurred while saving config: {e}")
     return None
 
-def zip_configs(city_folder: str):
-    city_name = os.path.basename(city_folder)
-    zip_file_path = f"{city_folder}.zip"
-    
-    with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for root, dirs, files in os.walk(city_folder):
-            for file in files:
-                file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, start=os.path.dirname(city_folder))
-                zipf.write(file_path, arcname=arcname)
-    
-    logging.info(f"Zipped configuration files for {city_name} into {zip_file_path}")
-
-
 def calculate_distance(user_latitude, user_longitude, server_latitude, server_longitude):
     # Convert decimal degrees to radians
     user_longitude, user_latitude, server_longitude, server_latitude = map(radians, [user_longitude, user_latitude, server_longitude, server_latitude])
@@ -143,27 +128,10 @@ def get_user_location():
         logging.error(f'Other error occurred: {err}')
         raise
 
-def zip_best_configs():
-    best_configs_path = 'best_configs'
-    zipf = zipfile.ZipFile(f'{best_configs_path}.zip', 'w', zipfile.ZIP_DEFLATED)
-    for root, dirs, files in os.walk(best_configs_path):
-        for file in files:
-            file_path = os.path.join(root, file)
-            arcname = os.path.relpath(file_path, start=best_configs_path)
-            zipf.write(file_path, arcname=arcname)
-    zipf.close()
-    logging.info("Zipped best configuration files")
-
-# The rest of the functions remain unchanged
-
 def main():
     access_token = input("Enter your access token: ")
     private_key = get_nordlynx_private_key(access_token)
     if private_key:
-        zip_files = input("Do you want to zip the configuration files? (yes/no): ").lower()
-        if zip_files not in ['yes', 'no']:
-            print("Invalid input. Please enter either 'yes' or 'no'.")
-            return
         all_servers = get_wireguard_servers()
         if all_servers:
             user_latitude, user_longitude = get_user_location()
@@ -171,20 +139,6 @@ def main():
             with ThreadPoolExecutor() as executor:
                 city_paths = list(set(executor.map(save_config, [private_key]*len(sorted_servers), sorted_servers)))
                 city_paths = [path for path in city_paths if path is not None]
-                if zip_files == 'yes':
-                    # Create a set to store unique city folder paths
-                    unique_city_folders = set()
-                    for city_path in city_paths:
-                        # Extract the city folder path and add it to the set
-                        city_folder = os.path.dirname(city_path)
-                        unique_city_folders.add(city_folder)
-                    
-                    # Zip the contents of each unique city folder
-                    for city_folder in unique_city_folders:
-                        zip_configs(city_folder)
-                    
-                    # Zip the best configurations if needed
-                    zip_best_configs()
 
             # Group servers by country and city
             servers_by_location = {}
@@ -217,12 +171,34 @@ def main():
 
             # Write the servers to a file
             with open('servers.json', 'w') as f:
-                for country, cities in servers_by_location.items():
-                    f.write(f'"{country}":' + '{')
-                    for city, data in cities.items():
-                        json_data = json.dumps({city: data}, separators=(',', ':'))
-                        f.write(json_data[1:-1] + ',\n')
-                    f.write('},')
+                f.write('{\n')
+                last_country_index = len(servers_by_location) - 1
+                for index, (country, cities) in enumerate(servers_by_location.items()):
+                    f.write(f'  "{country}": {{\n')
+                    last_city_index = len(cities) - 1
+                    for city_index, (city, data) in enumerate(cities.items()):
+                        f.write(f'    "{city}": {{\n')
+                        f.write(f'      "distance": {data["distance"]},\n')
+                        f.write(f'      "servers": [\n')
+                        last_server_index = len(data["servers"]) - 1
+                        for server_index, server in enumerate(data["servers"]):
+                            f.write(f'        ["{server[0]}", {server[1]}]')
+                            if server_index < last_server_index:
+                                f.write(',\n')
+                            else:
+                                f.write('\n')
+                        f.write(f'      ]\n')
+                        f.write(f'    }}')
+                        if city_index < last_city_index:
+                            f.write(',\n')
+                        else:
+                            f.write('\n')
+                    f.write(f'  }}')
+                    if index < last_country_index:
+                        f.write(',\n')
+                    else:
+                        f.write('\n')
+                f.write('}\n')
 
         else:
             print("Failed to retrieve server information.")
