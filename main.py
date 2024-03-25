@@ -149,7 +149,7 @@ def main():
                     servers_by_location[country] = {}
                 if city not in servers_by_location[country]:
                     servers_by_location[country][city] = {"distance": int(server['distance']), "servers": []}
-                server_info = (server['name'], server['load'])
+                server_info = (server['name'], f"load: {server['load']}") # Enhanced server_info tuple with 'load' for clearer data comprehension
                 servers_by_location[country][city]["servers"].append(server_info)
 
             # Sort the servers in each city by load
