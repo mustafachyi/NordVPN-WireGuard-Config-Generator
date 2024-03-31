@@ -149,7 +149,7 @@ def main():
                     servers_by_location[country] = {}
                 if city not in servers_by_location[country]:
                     servers_by_location[country][city] = {"distance": int(server['distance']), "servers": []}
-                server_info = (server['name'], f"load: {server['load']}") # Enhanced server_info tuple with 'load' for clearer data comprehension
+                server_info = (server['name'], f"load: {server['load']}")
                 servers_by_location[country][city]["servers"].append(server_info)
 
             # Sort the servers in each city by load
@@ -161,10 +161,14 @@ def main():
             if not os.path.exists('best_configs'):
                 os.makedirs('best_configs')
             for country, cities in servers_by_location.items():
+                # Replace spaces in country names with underscores
+                safe_country_name = country.replace(' ', '_')
                 for city, data in cities.items():
                     best_server = data["servers"][0]
                     best_server_info = next(server for server in all_servers if server['name'] == best_server[0])
-                    save_config(private_key, best_server_info, os.path.join('best_configs', f'{country}_{city}.conf'))
+                    # Replace spaces in city names with underscores
+                    safe_city_name = city.replace(' ', '_')
+                    save_config(private_key, best_server_info, os.path.join('best_configs', f'{safe_country_name}_{safe_city_name}.conf'))
 
             # Sort the countries alphabetically
             servers_by_location = dict(sorted(servers_by_location.items()))
