@@ -1,146 +1,112 @@
-from operator import itemgetter
-import os
-import requests
-import logging
-import subprocess
-import json
-from typing import Tuple, Optional, List, Dict
+import os, requests, logging, subprocess, json, time
 from concurrent.futures import ThreadPoolExecutor
 from math import radians, cos, sin, asin, sqrt
+from operator import itemgetter
 
-# Constants
-URL = "https://api.nordvpn.com/v1/servers?limit=7000&filters[servers_technologies][identifier]=wireguard_udp"
-TECHNOLOGY_IDENTIFIER = 'wireguard_udp'
-PUBLIC_KEY = 'public_key'
-
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 
-def get_nordlynx_private_key(access_token):
+def get_key(token):
     try:
-        output = subprocess.check_output(["curl", "-s", "-u", f"token:{access_token}", "https://api.nordvpn.com/v1/users/services/credentials"])
-        data = json.loads(output.decode('utf-8'))
-        return data.get('nordlynx_private_key')
+        return json.loads(subprocess.check_output(["curl", "-s", "-u", f"token:{token}", "https://api.nordvpn.com/v1/users/services/credentials"]).decode('utf-8')).get('nordlynx_private_key')
     except subprocess.CalledProcessError as e:
         print(f"Error: {e}")
-        return None
     except json.JSONDecodeError as e:
         print(f"Error decoding JSON: {e}")
-        return None
 
-def get_wireguard_servers() -> Optional[List[Dict]]:
+def get_servers():
     try:
-        response = requests.get(URL)
-        response.raise_for_status()
-        return response.json()
-    except requests.HTTPError as http_err:
-        logging.error(f'HTTP error occurred: {http_err}')
-        raise
+        return requests.get("https://api.nordvpn.com/v1/servers?limit=7000&filters[servers_technologies][identifier]=wireguard_udp").json()
     except Exception as err:
-        logging.error(f'Other error occurred: {err}')
+        logging.error(f'Error occurred: {err}')
         raise
 
-def find_public_key(server_info: Dict) -> Optional[str]:
-    for technology in server_info['technologies']:
-        if technology['identifier'] == TECHNOLOGY_IDENTIFIER:
-            metadata = technology.get('metadata', [])
-            for data in metadata:
-                if data.get('name') == PUBLIC_KEY:
+def find_key(server):
+    for tech in server['technologies']:
+        if tech['identifier'] == 'wireguard_udp':
+            for data in tech.get('metadata', []):
+                if data.get('name') == 'public_key':
                     return data.get('value')
-    return None
 
-def format_name(name: str) -> str:
+def format_name(name):
     return name.replace(' ', '_')
 
-def generate_wireguard_config(private_key: str, server_info: Dict) -> Tuple[str, str, str, str]:
-    public_key = find_public_key(server_info)
+def generate_config(key, server):
+    public_key = find_key(server)
     if public_key:
-        country_name = format_name(server_info['locations'][0]['country']['name'])
-        city_name = format_name(server_info['locations'][0]['country'].get('city', {}).get('name', 'Unknown'))
-        server_name = format_name(f"{server_info['name'].replace('#', '')}_{city_name}")
+        country_name = format_name(server['locations'][0]['country']['name'])
+        city_name = format_name(server['locations'][0]['country'].get('city', {}).get('name', 'Unknown'))
+        server_name = format_name(f"{server['name'].replace('#', '')}_{city_name}")
         config = f"""
 [Interface]
-PrivateKey = {private_key}
+PrivateKey = {key}
 Address = 10.5.0.2/16
 DNS = 103.86.96.100
 
 [Peer]
 PublicKey = {public_key}
 AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = {server_info['station']}:51820
+Endpoint = {server['station']}:51820
 PersistentKeepalive = 25
 """
         return country_name, city_name, server_name, config
     else:
-        logging.info(f"No WireGuard public key found for {server_info['name']} in {server_info.get('city', {}).get('name', 'Unknown')}. Skipping.")
-        return None, None, None, None
+        logging.info(f"No WireGuard public key found for {server['name']} in {server.get('city', {}).get('name', 'Unknown')}. Skipping.")
 
-def save_config(private_key: str, server_info: Dict, filepath: str = None):
+def save_config(key, server, path=None):
     try:
-        if 'locations' in server_info:
-            country_folder, city_folder, server_name, config = generate_wireguard_config(private_key, server_info)
+        if 'locations' in server:
+            country_folder, city_folder, server_name, config = generate_config(key, server)
             if config:
-                if filepath is None:
+                if path is None:
                     country_path = os.path.join('configs', country_folder)
                     os.makedirs(country_path, exist_ok=True)
                     city_path = os.path.join(country_path, city_folder)
                     os.makedirs(city_path, exist_ok=True)
                     filename = f"{server_name}.conf"
-                    filepath = os.path.join(city_path, filename)
-                with open(filepath, "w") as f:
+                    path = os.path.join(city_path, filename)
+                with open(path, "w") as f:
                     f.write(config)
-                    logging.info(f"WireGuard configuration for {server_name} saved to {filepath}")
-                return filepath
+                    logging.info(f"WireGuard configuration for {server_name} saved to {path}")
+                return path
     except Exception as e:
         logging.error(f"Error occurred while saving config: {e}")
-    return None
 
-def calculate_distance(user_latitude, user_longitude, server_latitude, server_longitude):
-    # Convert decimal degrees to radians
-    user_longitude, user_latitude, server_longitude, server_latitude = map(radians, [user_longitude, user_latitude, server_longitude, server_latitude])
-
-    # Haversine formula
-    dlon = server_longitude - user_longitude
-    dlat = server_latitude - user_latitude
-    a = sin(dlat/2)**2 + cos(user_latitude) * cos(server_latitude) * sin(dlon/2)**2
+def calculate_distance(ulat, ulon, slat, slon):
+    ulon, ulat, slon, slat = map(radians, [ulon, ulat, slon, slat])
+    dlon = slon - ulon
+    dlat = slat - ulat
+    a = sin(dlat/2)**2 + cos(ulat) * cos(slat) * sin(dlon/2)**2
     c = 2 * asin(sqrt(a))
-    r = 6371 # Radius of earth in kilometers
-    return c * r
+    return c * 6371
 
-def sort_servers(servers, user_latitude, user_longitude):
+def sort_servers(servers, ulat, ulon):
     for server in servers:
-        server_latitude = server['locations'][0]['latitude']
-        server_longitude = server['locations'][0]['longitude']
-        server['distance'] = calculate_distance(user_latitude, user_longitude, server_latitude, server_longitude)
+        slat = server['locations'][0]['latitude']
+        slon = server['locations'][0]['longitude']
+        server['distance'] = calculate_distance(ulat, ulon, slat, slon)
     return sorted(servers, key=lambda k: (k['load'], k['distance']))
 
-def get_user_location():
+def get_location():
     try:
-        response = requests.get('https://ipinfo.io/json')
-        response.raise_for_status()
-        data = response.json()
-        location = data['loc'].split(',')
+        location = requests.get('https://ipinfo.io/json').json()['loc'].split(',')
         return float(location[0]), float(location[1])
-    except requests.HTTPError as http_err:
-        logging.error(f'HTTP error occurred: {http_err}')
-        raise
     except Exception as err:
-        logging.error(f'Other error occurred: {err}')
+        logging.error(f'Error occurred: {err}')
         raise
 
 def main():
-    access_token = input("Enter your access token: ")
-    private_key = get_nordlynx_private_key(access_token)
-    if private_key:
-        all_servers = get_wireguard_servers()
-        if all_servers:
-            user_latitude, user_longitude = get_user_location()
-            sorted_servers = sort_servers(all_servers, user_latitude, user_longitude)
+    token = input("Enter your access token: ")
+    key = get_key(token)
+    start_time = time.time()
+    if key:
+        servers = get_servers()
+        if servers:
+            ulat, ulon = get_location()
+            sorted_servers = sort_servers(servers, ulat, ulon)
             with ThreadPoolExecutor() as executor:
-                city_paths = list(set(executor.map(save_config, [private_key]*len(sorted_servers), sorted_servers)))
-                city_paths = [path for path in city_paths if path is not None]
+                paths = list(set(executor.map(save_config, [key]*len(sorted_servers), sorted_servers)))
+                paths = [path for path in paths if path is not None]
 
-            # Group servers by country and city
             servers_by_location = {}
             for server in sorted_servers:
                 country = server['locations'][0]['country']['name']
@@ -152,28 +118,22 @@ def main():
                 server_info = (server['name'], f"load: {server['load']}")
                 servers_by_location[country][city]["servers"].append(server_info)
 
-            # Sort the servers in each city by load
             for country in servers_by_location:
                 for city in servers_by_location[country]:
                     servers_by_location[country][city]["servers"].sort(key=itemgetter(1))
 
-            # Save the best config for each city in each country
             if not os.path.exists('best_configs'):
                 os.makedirs('best_configs')
             for country, cities in servers_by_location.items():
-                # Replace spaces in country names with underscores
                 safe_country_name = country.replace(' ', '_')
                 for city, data in cities.items():
                     best_server = data["servers"][0]
-                    best_server_info = next(server for server in all_servers if server['name'] == best_server[0])
-                    # Replace spaces in city names with underscores
+                    best_server_info = next(server for server in servers if server['name'] == best_server[0])
                     safe_city_name = city.replace(' ', '_')
-                    save_config(private_key, best_server_info, os.path.join('best_configs', f'{safe_country_name}_{safe_city_name}.conf'))
+                    save_config(key, best_server_info, os.path.join('best_configs', f'{safe_country_name}_{safe_city_name}.conf'))
 
-            # Sort the countries alphabetically
             servers_by_location = dict(sorted(servers_by_location.items()))
 
-            # Write the servers to a file
             with open('servers.json', 'w') as f:
                 f.write('{\n')
                 last_country_index = len(servers_by_location) - 1
@@ -208,6 +168,9 @@ def main():
             print("Failed to retrieve server information.")
     else:
         print("Failed to retrieve Nordlynx Private Key.")
+    end_time = time.time()  # End the timer
+    elapsed_time = end_time - start_time  # Calculate the elapsed time
+    print(f"Process completed in {elapsed_time} seconds")
 
 if __name__ == "__main__":
     main()
