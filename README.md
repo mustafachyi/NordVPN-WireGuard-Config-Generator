@@ -74,6 +74,6 @@ Contributions to the NordVPN WireGuard Configuration Generator are welcome! If y
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
+This project is licensed under the GNU License. See the [LICENSE](LICENSE) file for more information.
 
 We hope that the NordVPN WireGuard Configuration Generator simplifies your VPN setup process and enhances your overall NordVPN experience. If you have any questions or need further assistance, please don't hesitate to reach out.
