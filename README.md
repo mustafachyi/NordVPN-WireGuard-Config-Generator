@@ -2,6 +2,8 @@
 
 Welcome to the NordVPN WireGuard Configuration Generator & Proxy Servers Fetcher tool! This project aims to simplify the process of setting up optimized WireGuard configuration files for NordVPN servers while also providing a convenient way to fetch proxy servers from the NordVPN API. As a bonus addition to the project, we are introducing a version of the tool written in Go language for users who prefer Go over Python, along with a web version that generates configuration files without the private key, making the use of the access token optional for added security.
 
+If you find this project useful, please consider giving it a star to show your love and support!
+
 ## Introduction
 
 Setting up WireGuard for NordVPN can be complex, but our generator streamlines this process. It automatically creates optimized configuration files based on your preferences and location. The included script fetches proxy servers from NordVPN's API and saves them for easy use. With the introduction of the Go version and the web version (where the user must add the private key manually after downloading the configuration for added security or opt to use the access token), users now have additional options for utilizing the tool.
@@ -91,4 +93,4 @@ Contributions are welcome! Feel free to open issues or submit pull requests to i
 
 This project is licensed under GNU License. See [LICENSE](LICENSE) for details.
 
-We hope this tool simplifies your VPN setup and enhances your NordVPN experience. Choose the version that suits your needs and reach out if you need assistance!
+We hope this tool simplifies your VPN setup and enhances your NordVPN experience. Choose the version that suits your needs and reach out if you need assistance!If you appreciate our work, please give us a star on GitHub to show your support!
