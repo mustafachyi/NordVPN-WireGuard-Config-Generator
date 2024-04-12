@@ -2,11 +2,7 @@
 <html>
 <head>
     <title>Server Information</title>
-    <style>
-        body{background-color:#2b2b2b;color:#f5f5f5}table{width:100%;border-collapse:collapse}th,td{border:1px solid #444;padding:8px}tr:nth-child(even){background-color:#3c3c3c}th{padding-top:12px;padding-bottom:12px;text-align:left;background-color:#4CAF50;color:white}
-        select, button {background-color: #4CAF50; color: white; border: none; padding: 5px 10px; text-align: center; text-decoration: none; display: inline-block; font-size: 16px; margin: 4px 2px; transition-duration: 0.4s; cursor: pointer; border-radius: 12px;}
-        select:hover, button:hover {background-color: #45a049;}
-    </style>
+    <link rel="stylesheet" type="text/css" href="main_styles.css">
 </head>
 <body>
     <div>
@@ -14,7 +10,8 @@
         <select id="country"></select>
         <button id="sortLoadAsc">Sort by Load (Asc)</button>
         <button id="sortLoadDesc">Sort by Load (Desc)</button>
-		<button onclick="window.location.href='key.html'">Generate Private Key</button>
+        <button onclick="window.location.href='key.html'">Generate Private Key</button>
+        <button onclick="window.location.href='https://github.com/mustafachyi/NordVPN-WireGuard-Config-Generator'">Star on GitHub</button>
     </div>
     <table id="servers">
         <tr>
@@ -24,143 +21,6 @@
         </tr>
     </table>
     <button id="loadMore">Load More</button>
-
-    <script>
-        const CORS_PROXY = "https://corsproxy.io/?";
-        const SERVERS_URL = `${CORS_PROXY}https://api.nordvpn.com/v1/servers?limit=7000&filters[servers_technologies][identifier]=wireguard_udp`;
-
-        let originalServers = [];
-        let servers = [];
-        let currentPage = 0;
-        const pageSize = 50;
-
-        fetch(SERVERS_URL)
-			.then(response => response.json())
-			.then(fetchedServers => {
-				originalServers = fetchedServers;
-				originalServers.sort((a, b) => a.name.localeCompare(b.name));  // Sort servers alphabetically
-				servers = [...originalServers];  // Create a copy of the original servers
-				populateCountryFilter();
-				displayServers();  // Display first page of servers by default
-			});
-
-        document.getElementById('country').addEventListener('change', filterServersByCountry);
-        document.getElementById('sortLoadAsc').addEventListener('click', () => {
-            clearTable();
-            sortServersByLoad('asc');
-        });
-        document.getElementById('sortLoadDesc').addEventListener('click', () => {
-            clearTable();
-            sortServersByLoad('desc');
-        });
-        document.getElementById('loadMore').addEventListener('click', () => {
-            if (currentPage * pageSize < servers.length) {
-                displayServers();
-            } else {
-                const loadMoreButton = document.getElementById('loadMore');
-                loadMoreButton.textContent = "No more servers to show";
-                loadMoreButton.style.backgroundColor = "#f44336";  // Change the background color to red
-                setTimeout(() => {
-                    loadMoreButton.textContent = "Load More";
-                    loadMoreButton.style.backgroundColor = "#4CAF50";  // Change the background color back to green
-                }, 3000);  // Change the text and style back after 3 seconds
-            }
-        });
-
-        function populateCountryFilter() {
-            const countrySelect = document.getElementById('country');
-            const allOption = document.createElement('option');
-            allOption.textContent = "All Countries";
-            allOption.value = "all";
-            countrySelect.appendChild(allOption);
-            const countries = [...new Set(originalServers.map(server => server.locations[0].country.name))];
-            countries.sort().forEach(country => {
-                const option = document.createElement('option');
-                option.textContent = country;
-                option.value = country;
-                countrySelect.appendChild(option);
-            });
-        }
-
-        function filterServersByCountry() {
-			clearTable();
-			const country = document.getElementById('country').value;
-			if (country === "all") {
-				servers = [...originalServers];  // Reset to the original list of servers
-				servers.sort((a, b) => a.name.localeCompare(b.name));  // Sort servers alphabetically
-			} else {
-				servers = originalServers.filter(server => server.locations[0].country.name === country);
-			}
-			currentPage = 0;
-			displayServers();
-		}
-
-        function sortServersByLoad(order) {
-            servers = [...servers].sort((a, b) => order === 'asc' ? a.load - b.load : b.load - a.load);
-            currentPage = 0;
-            displayServers();
-        }
-
-        function clearTable() {
-            const table = document.getElementById('servers');
-            // Clear the table except for the header row
-            while (table.rows.length > 1) {
-                table.deleteRow(1);
-            }
-        }
-
-        function displayServers() {
-            const start = currentPage * pageSize;
-            const end = start + pageSize;
-            const serversToDisplay = servers.slice(start, end);
-
-            const fragment = document.createDocumentFragment();
-            serversToDisplay.forEach(server => {
-                const row = document.createElement('tr');
-                row.insertCell(0).textContent = server.name;
-                row.insertCell(1).textContent = server.load;
-                const configLink = document.createElement('a');
-                configLink.textContent = 'Download Config';
-                configLink.href = createConfigBlobURL(server);
-                const sanitizedServerName = server.name.replace(/ /g, '_').replace(/#/g, '');
-                configLink.download = `${sanitizedServerName}.conf`;
-                row.insertCell(2).appendChild(configLink);
-                fragment.appendChild(row);
-            });
-            document.getElementById('servers').appendChild(fragment);
-            currentPage++;
-        }
-
-        function createConfigBlobURL(server) {
-            const publicKey = findKey(server);
-            const config = `
-[Interface]
-PrivateKey = YOUR_PRIVATE_KEY_HERE
-Address = 10.5.0.2/16
-DNS = 103.86.96.100
-
-[Peer]
-PublicKey = ${publicKey}
-AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = ${server.station}:51820
-PersistentKeepalive = 25
-`;
-            const blob = new Blob([config], {type: 'text/plain'});
-            return URL.createObjectURL(blob);
-        }
-
-        function findKey(server) {
-            for (let tech of server.technologies) {
-                if (tech.identifier === 'wireguard_udp') {
-                    for (let data of tech.metadata) {
-                        if (data.name === 'public_key') {
-                            return data.value;
-                        }
-                    }
-                }
-            }
-            return '';
-        }
-    </script>
+    <script src="main_script.js" defer></script>
 </body>
 </html>
