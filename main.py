@@ -2,14 +2,25 @@ import os, requests, logging, subprocess, json, time
 from concurrent.futures import ThreadPoolExecutor
 from math import radians, cos, sin, asin, sqrt
 from operator import itemgetter
+import base64
 
 logging.basicConfig(level=logging.INFO)
 
 def get_key(token):
     try:
-        return json.loads(subprocess.check_output(["curl", "-s", "-u", f"token:{token}", "https://api.nordvpn.com/v1/users/services/credentials"]).decode('utf-8')).get('nordlynx_private_key')
-    except subprocess.CalledProcessError as e:
-        print(f"Error: {e}")
+        token = base64.b64encode(f'token:{token}'.encode()).decode()
+        headers = {'Authorization': f'Basic {token}'}
+        response = requests.get("https://api.nordvpn.com/v1/users/services/credentials", headers=headers)
+        response.raise_for_status()
+        return response.json().get('nordlynx_private_key')
+    except requests.exceptions.HTTPError as errh:
+        print(f"Http Error: {errh}")
+    except requests.exceptions.ConnectionError as errc:
+        print(f"Error Connecting: {errc}")
+    except requests.exceptions.Timeout as errt:
+        print(f"Timeout Error: {errt}")
+    except requests.exceptions.RequestException as err:
+        print(f"Something went wrong: {err}")
     except json.JSONDecodeError as e:
         print(f"Error decoding JSON: {e}")
 
