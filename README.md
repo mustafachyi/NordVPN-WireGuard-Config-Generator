@@ -20,7 +20,6 @@ Setting up WireGuard for NordVPN can be complex, but our generator streamlines t
 - **Configuration File Management**: Files are neatly organized for easy management.
 - **Proxy Server Fetching**: Fetches proxy servers from NordVPN's API.
 - **Multi-Language Support**: Available in both Python and Go versions to cater to different user preferences.
-- **cURL Installer**: Automates the installation of cURL for network tasks (Python version).
 
 ## Usage
 
@@ -28,19 +27,11 @@ Before using the script, ensure that the necessary dependencies are installed fo
 
 ### Python Version
 
-1. Install cURL on your machine using the provided installation script:
-
-```bash
-python install_curl.py
-```
-
-This step is necessary to ensure cURL is installed and ready for use with the Python version of the tool.
-
-2. Obtain your NordVPN access token.
-3. Clone the repository.
-4. Run `main.py` and enter your access token.
-5. Follow the prompts to generate WireGuard configurations.
-6. Utilize `proxy_fetcher.py` for proxy servers.
+1. Obtain your NordVPN access token.
+2. Clone the repository.
+3. Run `main.py` and enter your access token.
+4. Follow the prompts to generate WireGuard configurations.
+5. Utilize `proxy_fetcher.py` for proxy servers.
 
 ### Go Version
 
@@ -95,4 +86,4 @@ Contributions are welcome! Feel free to open issues or submit pull requests to i
 
 This project is licensed under GNU License. See [LICENSE](LICENSE) for details.
 
-We hope this tool simplifies your VPN setup and enhances your NordVPN experience. Choose the version that suits your needs and reach out if you need assistance!If you appreciate our work, please give us a star on GitHub to show your support!
+We hope this tool simplifies your VPN setup and enhances your NordVPN experience. Choose the version that suits your needs and reach out if you need assistance! If you appreciate our work, please give us a star on GitHub to show your support!
