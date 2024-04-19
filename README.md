@@ -1,7 +1,3 @@
-Absolutely! Here's the revised README to include a Ruby version:
-
----
-
 # NordVPN WireGuard Configuration Generator & Proxy Servers Fetcher
 
 Welcome to the NordVPN WireGuard Configuration Generator & Proxy Servers Fetcher tool! This tool simplifies the setup of optimized WireGuard configuration files for NordVPN servers and provides a way to fetch proxy servers from the NordVPN API. We offer versions of the tool in Python, Go, Rust, Node.js, Ruby, and a web version for added convenience.
