@@ -1,6 +1,10 @@
+Absolutely! Here's the revised README to include a Ruby version:
+
+---
+
 # NordVPN WireGuard Configuration Generator & Proxy Servers Fetcher
 
-Welcome to the NordVPN WireGuard Configuration Generator & Proxy Servers Fetcher tool! This tool simplifies the setup of optimized WireGuard configuration files for NordVPN servers and provides a way to fetch proxy servers from the NordVPN API. We offer versions of the tool in Python, Go, Rust, and Node.js languages, along with a web version for added convenience.
+Welcome to the NordVPN WireGuard Configuration Generator & Proxy Servers Fetcher tool! This tool simplifies the setup of optimized WireGuard configuration files for NordVPN servers and provides a way to fetch proxy servers from the NordVPN API. We offer versions of the tool in Python, Go, Rust, Node.js, Ruby, and a web version for added convenience.
 
 ## Table of Contents
 
@@ -26,7 +30,7 @@ Setting up WireGuard for NordVPN can be complex, but our generator streamlines t
 - **Server Load Balancing**: Connects you to less congested servers.
 - **Configuration File Management**: Neatly organizes files for easy management.
 - **Proxy Server Fetching**: Retrieves proxy servers from NordVPN's API.
-- **Multi-Language Support**: Available in Python, Go, Rust, and Node.js versions.
+- **Multi-Language Support**: Available in Python, Go, Rust, Node.js, Ruby, and web versions.
 
 ## Usage
 
@@ -65,6 +69,15 @@ Before using the script, ensure that the necessary dependencies are installed fo
 5. Run with npm or pre-built script.
 6. Follow the prompts to generate WireGuard configurations.
 
+### Ruby Version
+
+1. Install Ruby on your machine.
+2. Obtain your NordVPN access token.
+3. Clone the repository.
+4. Install dependencies (`gem install oj`).
+5. Run the script and enter your NordVPN access token when prompted.
+6. Follow the prompts to generate WireGuard configurations.
+
 ### Web Version
 
 1. Visit the web tool at [nord-configs-crafter](https://nord-configs-crafter.pages.dev/).
@@ -79,7 +92,7 @@ Clone the repository to install the tool:
 git clone https://github.com/mustafachyi/NordVPN-WireGuard-Config-Generator.git
 ```
 
-For Go, Rust, and Node.js versions, you can compile from source or use pre-compiled executables.
+For Go, Rust, Node.js, Ruby, and web versions, you can compile from source or use pre-compiled executables.
 
 ## Dependencies
 
@@ -89,6 +102,7 @@ Ensure you have the following dependencies installed based on the version you ch
 - Go Version: Go programming language
 - Rust Version: Rust programming language
 - Node.js Version: `axios` library installed via `npm install axios`
+- Ruby Version: `oj` gem installed via `gem install oj`
 - Web Version: Web browser with internet access
 
 ## Contributing
