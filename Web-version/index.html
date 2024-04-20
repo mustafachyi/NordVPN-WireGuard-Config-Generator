@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>NordVPN WireGuard Config Generator - Create Your Configs Easily</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <meta name="google-site-verification" content="uzxZetfSKSIjNn-HT79eEoF1oR8amubrNdUvmvFO-kM" />
+    <meta name="description" content="Generate your NordVPN WireGuard configurations easily and quickly with our tool. Get started now!">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <link rel="stylesheet" type="text/css" href="index_styles.css">
+</head>
+<body>
+    <div>
+        <label for="country">Country:</label>
+        <select id="country"></select>
+        <label for="city" style="display: none;">City:</label>
+        <select id="city" style="display: none;"></select>
+        <button id="sortLoadAsc">Sort by Load (Asc)</button>
+        <button id="sortLoadDesc">Sort by Load (Desc)</button>
+        <button onclick="window.location.href='key.html'">Generate Private Key</button>
+        <button onclick="window.location.href='fetch-proxies.html'">Fetch Proxies</button>
+        <button onclick="window.open('https://github.com/mustafachyi/NordVPN-WireGuard-Config-Generator', '_blank')">Star on GitHub</button>
+        <button onclick="window.open('https://ref.nordvpn.com/MXIVDoJGpKT', '_blank')">Get Nord</button>
+    </div>
+    <table id="servers">
+        <tr>
+            <th>Server Name</th>
+            <th>Load</th>
+            <th>Config</th>
+        </tr>
+    </table>
+    <button id="loadMore">Load More</button>
+    <script src="index_script.js" defer></script>
+</body>
+</html>
