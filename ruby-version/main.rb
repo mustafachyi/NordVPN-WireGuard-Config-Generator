@@ -55,7 +55,7 @@ def find_key(server)
 end
 
 def format_name(name)
-  name.gsub(' ', '_')
+  name.gsub(' ', '_').gsub('-', '').gsub('__', '_')
 end
 
 def generate_config(key, server)
