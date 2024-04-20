@@ -86,7 +86,7 @@ function saveConfig(key, server, filePath = null) {
                     fs.mkdirSync(countryPath, { recursive: true });
                     const cityPath = path.join(countryPath, cityName);
                     fs.mkdirSync(cityPath, { recursive: true });
-                    const filename = `${serverName}.conf`;
+                    const filename = `${serverName.replace(/ |-/g, '_').replace(/_+/g, '_')}.conf`; // Removing dashes and consecutive underscores
                     filePath = path.join(cityPath, filename);
                 }
                 fs.writeFileSync(filePath, config);
@@ -98,6 +98,7 @@ function saveConfig(key, server, filePath = null) {
         console.error(`Error occurred while saving config: ${error}`);
     }
 }
+
 
 function calculateDistance(ulat, ulon, slat, slon) {
     const dlon = slon - ulon;
@@ -168,8 +169,8 @@ async function main() {
             for (let city in serversByLocation[country]) {
                 const bestServer = serversByLocation[country][city].servers[0];
                 const bestServerInfo = sortedServers.find(server => server.name === bestServer[0]);
-                const safeCountryName = formatName(country);
-                const safeCityName = formatName(city);
+                const safeCountryName = formatName(country).replace(/ |-/g, '_').replace(/_+/g, '_'); // Removing dashes and consecutive underscores
+                const safeCityName = formatName(city).replace(/ |-/g, '_').replace(/_+/g, '_'); // Removing dashes and consecutive underscores
                 saveConfig(key, bestServerInfo, path.join('best_configs', `${safeCountryName}_${safeCityName}.conf`));
             }
         }
