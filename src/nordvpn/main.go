@@ -200,7 +200,9 @@ PersistentKeepalive = 25
 
 	// Create configs, country, and city directories
 	country := strings.ReplaceAll(server.Locations[0].Country.Name, " ", "_")
+	country = strings.ReplaceAll(country, "-", "")
 	city := strings.ReplaceAll(server.Locations[0].Country.City.Name, " ", "_")
+	city = strings.ReplaceAll(city, "-", "")
 	dir := fmt.Sprintf("configs/%s/%s", country, city)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		fmt.Println(err)
@@ -210,6 +212,8 @@ PersistentKeepalive = 25
 	// Clean up the server name
 	serverName := strings.ReplaceAll(server.Name, "#", "")
 	serverName = strings.ReplaceAll(serverName, " ", "_")
+	serverName = strings.ReplaceAll(serverName, "-", "")
+	serverName = strings.ReplaceAll(serverName, "__", "_")
 
 	// Save the config file in the configs/country/city directory
 	var err error
