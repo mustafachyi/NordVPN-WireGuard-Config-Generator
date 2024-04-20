@@ -51,11 +51,9 @@ pub fn find_key(server: &Value) -> Option<String> {
 }
 
 fn format_name(name: &str) -> String {
-    if name.contains(' ') {
-        name.replace(" ", "_")
-    } else {
-        name.to_string()
-    }
+    let name = name.replace(" ", "_");
+    let name = name.replace("-", "");
+    name.replace("__", "_")
 }
 
 fn generate_config(key: &str, server: &Value) -> Option<(String, String, String, String)> {
