@@ -39,7 +39,10 @@ def find_key(server):
                     return data.get('value')
 
 def format_name(name):
-    return name.replace(' ', '_')
+    name = name.replace(' ', '_').replace('-', '')
+    while '__' in name:
+        name = name.replace('__', '_')
+    return name
 
 def generate_config(key, server):
     public_key = find_key(server)
@@ -136,12 +139,14 @@ def main():
             if not os.path.exists('best_configs'):
                 os.makedirs('best_configs')
             for country, cities in servers_by_location.items():
-                safe_country_name = country.replace(' ', '_')
+                safe_country_name = format_name(country)
                 for city, data in cities.items():
                     best_server = data["servers"][0]
                     best_server_info = next(server for server in servers if server['name'] == best_server[0])
-                    safe_city_name = city.replace(' ', '_')
-                    save_config(key, best_server_info, os.path.join('best_configs', f'{safe_country_name}_{safe_city_name}.conf'))
+                    safe_country_name_final = '_'.join(filter(None, safe_country_name.split('_')))
+                    safe_city_name_final = '_'.join(filter(None, format_name(city).split('_')))
+                    save_config(key, best_server_info, os.path.join('best_configs', f'{safe_country_name_final}_{safe_city_name_final}.conf'))
+
 
             servers_by_location = dict(sorted(servers_by_location.items()))
 
