@@ -67,7 +67,7 @@ function displayServers() {
         t.insertCell(0).textContent = e.name, t.insertCell(1).textContent = e.load;
         let n = document.createElement("a");
         n.textContent = "Download Config", n.href = createConfigBlobURL(e);
-        let o = e.name.replace(/ /g, "_").replace(/#/g, "");
+        let o = e.name.replace(/ /g, "_").replace(/-/g, "").replace(/__/g, "_").replace(/#/g, "");
         n.download = `${o}.conf`, t.insertCell(2).appendChild(n), r.appendChild(t)
     }), document.getElementById("servers").appendChild(r), currentPage++
 }
