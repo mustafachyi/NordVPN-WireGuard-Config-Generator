@@ -92,6 +92,10 @@ function displayServers() {
         t.insertCell(0).textContent = e.serverName, t.insertCell(1).textContent = e.load;
         let n = document.createElement("a");
         n.textContent = "Download Config", n.href = createConfigBlobURL(e);
+        n.style.color = "#FFFFFF"; // Set the text color to white
+        n.style.textDecoration = "none"; // Remove underline
+        n.onmouseover = function() { this.style.color = "#3e5fff"; }; // Change color to blue on hover
+        n.onmouseout = function() { this.style.color = "#FFFFFF"; }; // Change color back to white when not hovering
         let o = e.serverName.replace(/ /g, "_").replace(/-/g, "").replace(/__/g, "_").replace(/#/g, "");
         n.download = `${o}.conf`, t.insertCell(2).appendChild(n), r.appendChild(t)
     }), document.getElementById("servers").appendChild(r), currentPage++

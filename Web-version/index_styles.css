@@ -1,31 +1,41 @@
+:root {
+    --primary-100: #3e5fff; /* NordVPN icon blue */
+    --bg-100: #1a1a1a; /* Very dark gray */
+    --bg-200: #2d2d2d; /* Slightly lighter dark gray */
+    --text-100: #f0f0f0; /* Lighter shade of white */
+}
+
 body {
-    background-color: #2b2b2b;
-    color: #ffffff;
-  }
-  table {
+    background-color: var(--bg-100);
+    color: var(--text-100);
+}
+
+table {
     width: 100%;
     border-collapse: collapse;
-  }
-  th,
-  td {
-    border: 1px solid #444;
+}
+
+th, td {
+    border: 1px solid var(--primary-100);
     padding: 8px;
-    color: #ffffff;
-  }
-  tr:nth-child(even) {
-    background-color: #3c3c3c;
-  }
-  th {
+    color: var(--text-100);
+}
+
+tr:nth-child(even) {
+    background-color: var(--bg-200);
+}
+
+th {
     padding-top: 12px;
     padding-bottom: 12px;
     text-align: left;
-    background-color: #4caf50;
-    color: #000;
-  }
-  select,
-  button {
-    background-color: #4caf50;
-    color: #000;
+    background-color: var(--primary-100);
+    color: var(--text-100);
+}
+
+select, button {
+    background-color: var(--primary-100);
+    color: var(--text-100);
     border: none;
     padding: 5px 10px;
     text-align: center;
@@ -36,15 +46,15 @@ body {
     transition-duration: 0.4s;
     cursor: pointer;
     border-radius: 12px;
-  }
-  select:hover,
-  button:hover {
-    background-color: #45a049;
-  }
+}
+
+select:hover, button:hover {
+    background-color: #2c48cc; /* Darker shade of --primary-100 for hover effect */
+}
+
 div {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: flex-start;
 }
-  
