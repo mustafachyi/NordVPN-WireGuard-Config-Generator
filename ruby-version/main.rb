@@ -148,7 +148,7 @@ def main
   servers = get_servers
   ulat, ulon = get_location
   sorted_servers = sort_servers(servers, ulat, ulon)
-  paths = sorted_servers.map { |server| save_config(key, server) }
+  sorted_servers.map { |server| save_config(key, server) }
 
   servers_by_location = {}
   sorted_servers.each do |server|
@@ -176,7 +176,7 @@ def main
     end
   end
 
-  data = JSON.pretty_generate(servers_by_location)
+  JSON.pretty_generate(servers_by_location)
 
   File.open('servers.json', 'w') do |f|
     f.write("{\n")
