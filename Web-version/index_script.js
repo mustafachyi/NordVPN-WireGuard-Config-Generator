@@ -151,8 +151,13 @@ document.getElementById("loadMore").addEventListener("click", () => {
     if (50 * currentPage < servers.length) displayServers();
     else {
         let e = document.getElementById("loadMore");
-        e.textContent = "No more servers to show", e.style.backgroundColor = "#f44336", setTimeout(() => {
-            e.textContent = "Load More", e.style.backgroundColor = "#4CAF50"
+        e.textContent = "No more servers to show";
+        e.style.backgroundColor = "#f44336";
+        e.style.color = "#ffffff";
+        setTimeout(() => {
+            e.textContent = "Load More";
+            e.style.backgroundColor = "#3e5fff";
+            e.style.color = "#000000";
         }, 3e3)
     }
 });
