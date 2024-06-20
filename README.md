@@ -40,7 +40,7 @@ Before using the script, ensure that the necessary dependencies are installed fo
 4. Follow the prompts to generate WireGuard configurations.
 5. Utilize `proxy_fetcher.py` for proxy servers.
 
-### Go Version
+### Go Version (fastest based on my tests)
 
 1. Install Go on your machine.
 2. Obtain your NordVPN access token.
