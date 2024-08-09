@@ -27,6 +27,7 @@ Setting up WireGuard for NordVPN can be complex, but our generator streamlines t
 - **Configuration File Management**: Neatly organizes files for easy management.
 - **Proxy Server Fetching**: Retrieves proxy servers from NordVPN's API.
 - **Multi-Language Support**: Available in Python, Go, Rust, Node.js, Ruby, and web versions.
+- **Security Assurance with `get-key.py`**: Added a simple script to ensure your private key is securely obtained without logging data.
 
 ## Usage
 
@@ -39,6 +40,7 @@ Before using the script, ensure that the necessary dependencies are installed fo
 3. Run `main.py` and enter your access token.
 4. Follow the prompts to generate WireGuard configurations.
 5. Utilize `proxy_fetcher.py` for proxy servers.
+6. **Optional**: For added security, use the `get-key.py` script to ensure your private key is securely obtained directly by you."
 
 ### Go Version (fastest based on my tests)
 
