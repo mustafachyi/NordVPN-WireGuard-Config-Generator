@@ -4,14 +4,14 @@ Welcome to the NordVPN WireGuard Configuration Generator & Proxy Servers Fetcher
 
 ## Table of Contents
 
-- [Introduction](#introduction)
+- Introduction
 - [Key Features](#key-features)
-- [Usage](#usage)
-- [Installation](#installation)
-- [Dependencies](#dependencies)
-- [Contributing](#contributing)
-- [License](#license)
-- [Support](#support)
+- Usage
+- Installation
+- Dependencies
+- Contributing
+- License
+- Support
 
 ## Introduction
 
@@ -40,7 +40,7 @@ Before using the script, ensure that the necessary dependencies are installed fo
 3. Run `main.py` and enter your access token.
 4. Follow the prompts to generate WireGuard configurations.
 5. Utilize `proxy_fetcher.py` for proxy servers.
-6. **Optional**: For added security, use the `get-key.py` script to ensure your private key is securely obtained directly by you."
+6. **Optional**: For added security, use the `get-key.py` script to ensure your private key is securely obtained directly by you.
 
 ### Go Version (fastest based on my tests)
 
@@ -82,6 +82,12 @@ Before using the script, ensure that the necessary dependencies are installed fo
 2. Follow the prompts to generate WireGuard configurations.
 3. After downloading the configuration, manually add the private key or use the access token for security.
 
+### New Web Version Remake
+
+1. Visit the new web tool remake at [nord-configs](https://nord-configs.onrender.com/).
+2. Follow the prompts to generate WireGuard configurations.
+3. After downloading the configuration, manually add the private key or use the access token for security.
+
 ## Installation
 
 Clone the repository to install the tool:
@@ -109,7 +115,7 @@ Contributions are welcome! Feel free to open issues or submit pull requests to i
 
 ## License
 
-This project is licensed under GNU License. See [LICENSE](LICENSE) for details.
+This project is licensed under GNU License. See LICENSE for details.
 
 ## Support
 
