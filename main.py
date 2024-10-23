@@ -1,31 +1,70 @@
-import os, requests, json, time
-from concurrent.futures import ThreadPoolExecutor
+import aiohttp
+import asyncio
+import json
+import time
 from math import radians, cos, sin, asin, sqrt
-from operator import itemgetter
 from pathlib import Path
 import base64
+import re
+import aiofiles
+import numpy as np
+from concurrent.futures import ProcessPoolExecutor
 
-def get_key(token):
-    token = base64.b64encode(f'token:{token}'.encode()).decode()
-    headers = {'Authorization': f'Basic {token}'}
-    response = requests.get("https://api.nordvpn.com/v1/users/services/credentials", headers=headers)
-    response.raise_for_status()
-    return response.json().get('nordlynx_private_key')
+INVALID_FILENAME_CHARS = r'[<>:"/\\|?*\0]'
 
-def get_servers():
-    return requests.get("https://api.nordvpn.com/v1/servers?limit=7000&filters[servers_technologies][identifier]=wireguard_udp").json()
+def sanitize_filename(name):
+    name = re.sub(INVALID_FILENAME_CHARS, '', name)
+    name = name.lower().replace(' ', '_')
+    return name[:255]  # Typical max filename length
 
 def format_name(name):
     return '_'.join(filter(None, name.replace(' ', '_').replace('-', '').split('_')))
 
+def calculate_distance(ulat, ulon, slat, slon):
+    ulon, ulat, slon, slat = map(radians, [ulon, ulat, slon, slat])
+    dlon = slon - ulon
+    dlat = slat - ulat
+    a = sin(dlat / 2)**2 + cos(ulat) * cos(slat) * sin(dlon / 2)**2
+    c = 2 * asin(sqrt(a))
+    return c * 6371  # Earth radius in kilometers
+
+async def get_key(session, token):
+    token_encoded = base64.b64encode(f'token:{token}'.encode()).decode()
+    headers = {'Authorization': f'Basic {token_encoded}'}
+    async with session.get("https://api.nordvpn.com/v1/users/services/credentials", headers=headers) as response:
+        if response.status != 200:
+            return None
+        data = await response.json()
+        return data.get('nordlynx_private_key')
+
+async def get_servers(session):
+    url = "https://api.nordvpn.com/v1/servers?limit=7000&filters[servers_technologies][identifier]=wireguard_udp"
+    async with session.get(url) as response:
+        if response.status != 200:
+            return []
+        return await response.json()
+
+async def get_location(session):
+    async with session.get('https://ipinfo.io/json') as response:
+        if response.status != 200:
+            return None, None
+        data = await response.json()
+        loc = data.get('loc', '0,0').split(',')
+        if len(loc) != 2:
+            return None, None
+        return float(loc[0]), float(loc[1])
+
 def generate_config(key, server):
-    public_key = next((data.get('value') for tech in server['technologies'] if tech['identifier'] == 'wireguard_udp' for data in tech.get('metadata', []) if data.get('name') == 'public_key'), None)
+    public_key = next(
+        (data.get('value') for tech in server.get('technologies', [])
+         if tech.get('identifier') == 'wireguard_udp'
+         for data in tech.get('metadata', [])
+         if data.get('name') == 'public_key'), None)
     if public_key:
-        country_name = format_name(server['locations'][0]['country']['name'])
-        city_name = format_name(server['locations'][0]['country'].get('city', {}).get('name', 'Unknown'))
-        server_name = format_name(f"{server['name'].replace('#', '')}_{city_name}")
-        config = f"""
-[Interface]
+        country_name = sanitize_filename(format_name(server['locations'][0]['country']['name']))
+        city_name = sanitize_filename(format_name(server['locations'][0]['country'].get('city', {}).get('name', 'unknown')))
+        server_name = sanitize_filename(format_name(f"{server['name'].replace('#', '')}_{city_name}"))
+        config = f"""[Interface]
 PrivateKey = {key}
 Address = 10.5.0.2/16
 DNS = 103.86.96.100
@@ -37,87 +76,153 @@ Endpoint = {server['station']}:51820
 PersistentKeepalive = 25
 """
         return country_name, city_name, server_name, config
+    return None
 
-def save_config(key, server, path=None):
+async def save_config(key, server, semaphore, base_path='configs'):
     if 'locations' in server:
         config_data = generate_config(key, server)
         if config_data:
             country_folder, city_folder, server_name, config = config_data
-            if path is None:
-                path = Path('configs', country_folder, city_folder, f"{server_name}.conf")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "w") as f:
-                f.write(config)
-            return str(path)
+            path = Path(base_path) / country_folder / city_folder
+            file_path = path / f"{server_name}.conf"
+            async with semaphore:
+                try:
+                    path.mkdir(parents=True, exist_ok=True)  # Synchronously create directories
+                    async with aiofiles.open(file_path, "w") as f:
+                        await f.write(config)
+                    return True
+                except:
+                    return False
+    return False
 
-def calculate_distance(ulat, ulon, slat, slon):
-    ulon, ulat, slon, slat = map(radians, [ulon, ulat, slon, slat])
-    dlon = slon - ulon
-    dlat = slat - ulat
-    a = sin(dlat/2)**2 + cos(ulat) * cos(slat) * sin(dlon/2)**2
-    c = 2 * asin(sqrt(a))
-    return c * 6371
+async def save_best_config(key, best_server_info, semaphore, base_path='best_configs'):
+    config_data = generate_config(key, best_server_info)
+    if config_data:
+        country_folder, city_folder, server_name, config = config_data
+        path = Path(base_path) / country_folder / city_folder
+        file_path = path / f"{server_name}.conf"
+        async with semaphore:
+            try:
+                path.mkdir(parents=True, exist_ok=True)  # Synchronously create directories
+                async with aiofiles.open(file_path, "w") as f:
+                    await f.write(config)
+                return True
+            except:
+                return False
+    return False
 
-def sort_servers(servers, ulat, ulon):
-    for server in servers:
-        slat = server['locations'][0]['latitude']
-        slon = server['locations'][0]['longitude']
-        server['distance'] = calculate_distance(ulat, ulon, slat, slon)
-    return sorted(servers, key=lambda k: (k['load'], k['distance']))
-
-def get_location():
-    location = requests.get('https://ipinfo.io/json').json()['loc'].split(',')
-    return float(location[0]), float(location[1])
-
-def main():
+async def main():
     token = input("Enter your access token: ")
-    key = get_key(token)
+    if not token:
+        return
+
     start_time = time.time()
-    if key:
-        servers = get_servers()
-        if servers:
-            ulat, ulon = get_location()
-            sorted_servers = sort_servers(servers, ulat, ulon)
-            print("Starting to save configs...")
-            with ThreadPoolExecutor() as executor:
-                paths = list(filter(None, executor.map(save_config, [key]*len(sorted_servers), sorted_servers)))
-            print("All configs saved.")
+    semaphore = asyncio.Semaphore(200)  # Increase the limit for concurrent file writes
 
-            servers_by_location = {}
-            for server in sorted_servers:
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=200)) as session:
+        try:
+            # Fetch key, servers, and location concurrently
+            key_task = asyncio.create_task(get_key(session, token))
+            servers_task = asyncio.create_task(get_servers(session))
+            location_task = asyncio.create_task(get_location(session))
+            key, servers, location = await asyncio.gather(key_task, servers_task, location_task)
+            if location is None:
+                ulat, ulon = None, None
+            else:
+                ulat, ulon = location
+        except:
+            return
+
+        if not key or not servers or ulat is None or ulon is None:
+            return
+
+        # Group servers by country and city
+        servers_by_location = {}
+        for server in servers:
+            try:
                 country = server['locations'][0]['country']['name']
-                city = server['locations'][0]['country']['city']['name']
-                if country not in servers_by_location:
-                    servers_by_location[country] = {}
-                if city not in servers_by_location[country]:
-                    servers_by_location[country][city] = {"distance": int(server['distance']), "servers": []}
-                server_info = (server['name'], f"load: {server['load']}")
-                servers_by_location[country][city]["servers"].append(server_info)
+                city = server['locations'][0]['country'].get('city', {}).get('name', 'unknown')
+                servers_by_location.setdefault((country, city), []).append(server)
+            except:
+                continue
 
-            for country in servers_by_location:
-                for city in servers_by_location[country]:
-                    servers_by_location[country][city]["servers"].sort(key=itemgetter(1))
+        # Calculate distances for each unique location
+        distances = {}
+        for (country, city), servers in servers_by_location.items():
+            slat = servers[0]['locations'][0]['latitude']
+            slon = servers[0]['locations'][0]['longitude']
+            distances[(country, city)] = calculate_distance(ulat, ulon, slat, slon)
 
-            Path('best_configs').mkdir(parents=True, exist_ok=True)
-            for country, cities in servers_by_location.items():
-                safe_country_name = format_name(country)
-                for city, data in cities.items():
-                    best_server = data["servers"][0]
-                    best_server_info = next(server for server in servers if server['name'] == best_server[0])
-                    save_config(key, best_server_info, Path('best_configs', f'{safe_country_name}_{format_name(city)}.conf'))
+        # Assign distances to servers
+        for (country, city), servers in servers_by_location.items():
+            distance = distances[(country, city)]
+            for server in servers:
+                server['distance'] = distance
 
-            servers_by_location = dict(sorted(servers_by_location.items()))
+        # Convert load to integer if it's not already
+        for server in servers:
+            try:
+                server['load'] = int(server.get('load', 0))
+            except:
+                server['load'] = 0
 
-            with open('servers.json', 'w') as f:
-                json.dump(servers_by_location, f, indent=2)
+        # Flatten the servers list
+        sorted_servers = [server for servers in servers_by_location.values() for server in servers]
 
-        else:
-            print("Failed to retrieve server information.")
-    else:
-        print("Failed to retrieve Nordlynx Private Key.")
-    end_time = time.time()  # End the timer
-    elapsed_time = end_time - start_time  # Calculate the elapsed time
-    print(f"Process completed in {elapsed_time} seconds")
+        # Sort servers by load and distance
+        sorted_servers = sorted(sorted_servers, key=lambda k: (k['load'], k['distance']))
+
+        # Save all configs
+        save_tasks = [
+            asyncio.create_task(save_config(key, server, semaphore))
+            for server in sorted_servers
+        ]
+        saved_results = await asyncio.gather(*save_tasks, return_exceptions=True)
+        saved_count = sum(1 for result in saved_results if result is True)
+
+        # Organize servers by location
+        servers_by_location = {}
+        for server in sorted_servers:
+            try:
+                country = server['locations'][0]['country']['name']
+                city = server['locations'][0]['country'].get('city', {}).get('name', 'unknown')
+                servers_by_location.setdefault(country, {}).setdefault(city, {"distance": int(server['distance']), "servers": []})
+                servers_by_location[country][city]["servers"].append((server['name'], server['load']))
+            except:
+                continue
+
+        # Sort servers within each location by load
+        for country in servers_by_location:
+            for city in servers_by_location[country]:
+                servers_by_location[country][city]["servers"].sort(key=lambda x: x[1])
+
+        # Save best configs
+        Path('best_configs').mkdir(parents=True, exist_ok=True)
+        best_tasks = []
+        for country, cities in servers_by_location.items():
+            for city, data in cities.items():
+                if not data["servers"]:
+                    continue
+                best_server_name = data["servers"][0][0]
+                best_server_info = next((server for server in sorted_servers if server['name'] == best_server_name), None)
+                if best_server_info:
+                    best_tasks.append(asyncio.create_task(save_best_config(key, best_server_info, semaphore)))
+
+        best_saved_results = await asyncio.gather(*best_tasks, return_exceptions=True)
+        best_saved_count = sum(1 for result in best_saved_results if result is True)
+
+        # Save servers.json
+        try:
+            servers_by_location_sorted = dict(sorted(servers_by_location.items()))
+            async with aiofiles.open('servers.json', 'w') as f:
+                await f.write(json.dumps(servers_by_location_sorted, indent=2))
+        except:
+            pass
+
+    end_time = time.time()
+    # Minimal summary logging
+    print(f"Configs saved: {saved_count}, Best configs saved: {best_saved_count}")
+    print(f"Process completed in {end_time - start_time:.2f} seconds")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
