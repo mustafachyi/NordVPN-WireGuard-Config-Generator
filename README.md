@@ -4,14 +4,14 @@ Welcome to the NordVPN WireGuard Configuration Generator & Proxy Servers Fetcher
 
 ## Table of Contents
 
-- Introduction
+- [Introduction](#introduction)
 - [Key Features](#key-features)
-- Usage
-- Installation
-- Dependencies
-- Contributing
-- License
-- Support
+- [Usage](#usage)
+- [Installation](#installation)
+- [Dependencies](#dependencies)
+- [Contributing](#contributing)
+- [License](#license)
+- [Support](#support)
 
 ## Introduction
 
@@ -37,10 +37,14 @@ Before using the script, ensure that the necessary dependencies are installed fo
 
 1. Obtain your NordVPN access token.
 2. Clone the repository.
-3. Run `main.py` and enter your access token.
-4. Follow the prompts to generate WireGuard configurations.
-5. Utilize `proxy_fetcher.py` for proxy servers.
-6. **Optional**: For added security, use the `get-key.py` script to ensure your private key is securely obtained directly by you.
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Run `main.py` and enter your access token.
+5. Follow the prompts to generate WireGuard configurations.
+6. Utilize `proxy_fetcher.py` for proxy servers.
+7. **Optional**: For added security, use the `get-key.py` script to ensure your private key is securely obtained directly by you.
 
 ### Go Version (fastest based on my tests)
 
@@ -63,7 +67,10 @@ Before using the script, ensure that the necessary dependencies are installed fo
 1. Install Node.js on your machine.
 2. Obtain your NordVPN access token.
 3. Clone the repository.
-4. Install dependencies (`npm install axios`).
+4. Install dependencies:
+   ```bash
+   npm install axios
+   ```
 5. Run with npm or pre-built script.
 6. Follow the prompts to generate WireGuard configurations.
 
@@ -72,7 +79,10 @@ Before using the script, ensure that the necessary dependencies are installed fo
 1. Install Ruby on your machine.
 2. Obtain your NordVPN access token.
 3. Clone the repository.
-4. Install dependencies (`gem install oj`).
+4. Install dependencies:
+   ```bash
+   gem install oj
+   ```
 5. Run the script and enter your NordVPN access token when prompted.
 6. Follow the prompts to generate WireGuard configurations.
 
@@ -102,12 +112,12 @@ For Go, Rust, Node.js, Ruby, and web versions, you can compile from source or us
 
 Ensure you have the following dependencies installed based on the version you choose:
 
-- Python Version: `requests`, `logging`, `subprocess`, `concurrent.futures`
-- Go Version: Go programming language
-- Rust Version: Rust programming language
-- Node.js Version: `axios` library installed via `npm install axios`
-- Ruby Version: `oj` gem installed via `gem install oj`
-- Web Version: Web browser with internet access
+- **Python Version**: `aiohttp`, `aiofiles`, `numpy`
+- **Go Version**: Go programming language
+- **Rust Version**: Rust programming language
+- **Node.js Version**: `axios` library installed via `npm install axios`
+- **Ruby Version**: `oj` gem installed via `gem install oj`
+- **Web Version**: Web browser with internet access
 
 ## Contributing
 
@@ -115,7 +125,7 @@ Contributions are welcome! Feel free to open issues or submit pull requests to i
 
 ## License
 
-This project is licensed under GNU License. See LICENSE for details.
+This project is licensed under the GNU License. See LICENSE for details.
 
 ## Support
 
