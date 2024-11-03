@@ -72,7 +72,7 @@ DNS = 103.86.96.100
 [Peer]
 PublicKey = {public_key}
 AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = {server['station']}:51820
+Endpoint = {server['hostname']}:51820
 PersistentKeepalive = 25
 """
         return country_name, city_name, server_name, config
