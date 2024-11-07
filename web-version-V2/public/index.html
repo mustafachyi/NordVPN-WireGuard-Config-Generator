@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nord Configs - Download and Manage NordVPN WireGuard Configurations</title>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
+  <meta name="description" content="Easily download and manage NordVPN WireGuard configurations. Sort, filter, and download configurations for different countries and cities.">
+  <link href="/tailwind.css" rel="stylesheet">
+  <style>
+    body::-webkit-scrollbar, select::-webkit-scrollbar{width:0;height:0}
+    body, select{-ms-overflow-style:none}
+    *{scrollbar-width:none}
+    .modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);justify-content:center;align-items:center;z-index:1000}
+    .modal-content{background:#1a202c;padding:20px;border-radius:8px;text-align:center;position:relative;max-width:90%;box-sizing:border-box}
+    .modal img{max-width:100%;height:auto;margin-top:20px}
+    .close-modal{position:absolute;top:2px;right:2px;font-size:30px;color:#fff;cursor:pointer}
+  </style>
+</head>
+<body class="flex flex-col items-start min-h-screen m-0 bg-gray-900 text-gray-300 font-mono text-base sm:text-lg">
+  <header>
+    <h1 class="sr-only">Nord Configs - Download and Manage NordVPN WireGuard Configurations</h1>
+  </header>
+  <div class="container mx-auto px-2 sm:px-4 py-2 sm:py-4">
+    <div class="mb-2 sm:mb-4 flex flex-wrap items-center w-full space-y-2 sm:space-y-0 sm:space-x-2">
+      <div class="flex items-center w-full sm:w-auto space-x-2">
+        <label for="country-select" class="sr-only">Select Country</label>
+        <select id="country-select" class="bg-gray-800 text-gray-300 border border-gray-700 px-1 sm:px-2 py-1 w-full sm:w-auto text-sm sm:text-base">
+          <option value="all">All Countries</option>
+        </select>
+        <label for="city-select" class="sr-only">Select City</label>
+        <select id="city-select" class="bg-gray-800 text-gray-300 border border-gray-700 px-1 sm:px-2 py-1 w-full sm:w-auto text-sm sm:text-base hidden">
+          <option value="all">All Cities</option>
+        </select>
+      </div>
+      <div class="flex flex-wrap items-center w-full sm:w-auto space-y-0 sm:space-y-0 sm:space-x-2">
+        <div class="w-1/2 sm:w-auto px-1">
+          <button id="sort-asc-btn" class="btn bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-1 sm:px-2 py-1 w-full text-sm sm:text-base">Sort ↑</button>
+        </div>
+        <div class="w-1/2 sm:w-auto px-1">
+          <button id="sort-desc-btn" class="btn bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-1 sm:px-2 py-1 w-full text-sm sm:text-base">Sort ↓</button>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center w-full sm:w-auto space-y-0 sm:space-y-0 sm:space-x-2">
+        <div class="w-1/2 sm:w-auto px-1">
+          <button id="download-all-btn" class="btn bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-1 sm:px-2 py-1 w-full text-sm sm:text-base">Download All</button>
+        </div>
+        <div class="w-1/2 sm:w-auto px-1">
+          <button onclick="window.open('https://github.com/mustafachyi/NordVPN-WireGuard-Config-Generator', '_blank')" class="btn bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-1 sm:px-2 py-1 w-full text-sm sm:text-base">
+            Star on GitHub
+          </button>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center w-full sm:w-auto space-y-0 sm:space-y-0 sm:space-x-2">
+        <div class="w-1/2 sm:w-auto px-1">
+          <button onclick="window.open('https://ref.nordvpn.com/MXIVDoJGpKT', '_blank')" class="btn bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-1 sm:px-2 py-1 w-full text-sm sm:text-base">
+            Get Nord
+          </button>
+        </div>
+        <div class="w-1/2 sm:w-auto px-1">
+          <div id="server-count" class="server-count bg-gray-800 text-gray-300 border border-gray-700 px-1 sm:px-2 py-1 flex items-center justify-center w-full sm:w-auto min-w-[80px] text-sm sm:text-base">
+            0
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="w-full overflow-x-auto">
+      <table class="retro-table w-full border-collapse text-sm sm:text-base">
+        <thead>
+          <tr>
+            <th class="border border-gray-700 bg-gray-800 px-1 sm:px-2 py-1 text-left">Server</th>
+            <th class="border border-gray-700 bg-gray-800 px-1 sm:px-2 py-1 text-left">Load</th>
+            <th class="border border-gray-700 bg-gray-800 px-1 sm:px-2 py-1 text-left">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="server-table-body"></tbody>
+      </table>
+    </div>
+    <div class="mt-2 sm:mt-4 w-full">
+      <button id="show-more-btn" class="btn bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-1 sm:px-2 py-1 w-35 text-sm sm:text-base">Show More</button>
+    </div>
+  </div>
+
+  <!-- Modal for QR Code -->
+  <div id="qr-modal" class="modal flex">
+    <div class="modal-content">
+      <span id="close-modal" class="close-modal">&times;</span>
+      <img id="qr-code-img" src="" alt="QR Code">
+    </div>
+  </div>
+
+  <script>
+    let allServers = [];
+    let displayedServers = 0;
+    const serversPerPage = 100;
+    let sortOrder = 'name-asc';
+
+    async function fetchServers() {
+      const cache = await caches.open('server-cache');
+      const cached = await cache.match('/servers');
+      if (cached) {
+        allServers = processServers(await cached.json());
+        initializeUI();
+      }
+      const response = await fetch('/servers');
+      if (response.ok) {
+        const data = await response.json();
+        cache.put('/servers', new Response(JSON.stringify(data)));
+        allServers = processServers(data);
+        initializeUI();
+      } else {
+        console.error('Failed to fetch server data');
+      }
+    }
+
+    function processServers(data) {
+      return Object.entries(data).flatMap(([country, cities]) =>
+        Object.entries(cities).flatMap(([city, servers]) =>
+          servers.map(s => ({
+            country,
+            city,
+            formattedName: s.formattedName.replace(/_/g, ' '),
+            originalName: s.formattedName,
+            load: s.load
+          }))
+        )
+      );
+    }
+
+    function initializeUI() {
+      populateDropdowns(allServers);
+      displayServers();
+      updateServerCount();
+    }
+
+    function displayServers() {
+      const tbody = document.getElementById('server-table-body');
+      tbody.innerHTML = '';
+      const filtered = filterServers();
+
+      filtered.sort((a, b) => {
+        if (sortOrder === 'name-asc') return a.formattedName.localeCompare(b.formattedName);
+        if (sortOrder === 'load-asc') return a.load - b.load;
+        if (sortOrder === 'load-desc') return b.load - a.load;
+      });
+
+      const toShow = filtered.slice(0, displayedServers + serversPerPage);
+      toShow.forEach((s, index) => {
+        const row = `<tr class="${index % 2 === 1 ? 'bg-gray-800' : ''}">
+          <td class="border border-gray-700 px-1 sm:px-2 py-1">${s.formattedName}</td>
+          <td class="border border-gray-700 px-1 sm:px-2 py-1">${s.load}%</td>
+          <td class="border border-gray-700 px-1 sm:px-2 py-1">
+            <div class="flex flex-col sm:flex-row sm:space-x-2 space-y-2 sm:space-y-0">
+              <button class="btn bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-1 sm:px-2 py-1 text-sm sm:text-base" onclick="copyConfig(this, '${s.country}', '${s.city}', '${s.originalName}')">Copy</button>
+              <button class="btn bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-1 sm:px-2 py-1 text-sm sm:text-base" onclick="showQRCode('${s.country}', '${s.city}', '${s.originalName}')">Scan QR</button>
+              <button class="btn bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-1 sm:px-2 py-1 text-sm sm:text-base" onclick="downloadConfig('${s.country}', '${s.city}', '${s.originalName}')">Download</button>
+            </div>
+          </td>
+        </tr>`;
+        tbody.insertAdjacentHTML('beforeend', row);
+      });
+      displayedServers += serversPerPage;
+      document.getElementById('show-more-btn').classList.toggle('hidden', displayedServers >= filtered.length);
+    }
+
+    function populateDropdowns(servers) {
+      const countrySelect = document.getElementById('country-select');
+      const citySelect = document.getElementById('city-select');
+      const countries = [...new Set(servers.map(s => s.country))].sort();
+      countrySelect.innerHTML = '<option value="all">All Countries</option>' + countries.map(c => `<option value="${c}">${c}</option>`).join('');
+
+      countrySelect.onchange = () => {
+        sortOrder = 'name-asc';
+        displayedServers = 0;
+        const selected = countrySelect.value;
+        if (selected === 'all') {
+          citySelect.classList.add('hidden');
+          citySelect.value = 'all';
+        } else {
+          const cities = [...new Set(servers.filter(s => s.country === selected).map(s => s.city))].sort();
+          citySelect.innerHTML = '<option value="all">All Cities</option>' + cities.map(c => `<option value="${c}">${c}</option>`).join('');
+          citySelect.value = cities.length === 1 ? cities[0] : 'all';
+          citySelect.classList.remove('hidden');
+        }
+        displayServers();
+        updateServerCount();
+      };
+
+      citySelect.onchange = () => {
+        sortOrder = 'name-asc';
+        displayedServers = 0;
+        displayServers();
+        updateServerCount();
+      };
+    }
+
+    function filterServers() {
+      const country = document.getElementById('country-select').value;
+      const city = document.getElementById('city-select').value;
+      return allServers.filter(s =>
+        (country === 'all' || s.country === country) &&
+        (country === 'all' || city === 'all' || s.city === city)
+      );
+    }
+
+    function updateServerCount() {
+      document.getElementById('server-count').textContent = filterServers().length;
+    }
+
+    async function copyConfig(button, country, city, server) {
+      try {
+        const response = await fetch(`/config/${country}/${city}/${server}`);
+        if (response.ok) {
+          const config = await response.text();
+          navigator.clipboard.writeText(config);
+          button.textContent = 'Copied!';
+          setTimeout(() => {
+            button.textContent = 'Copy';
+          }, 1000);
+        } else {
+          alert('Failed to copy configuration');
+        }
+      } catch (error) {
+        console.error('Error copying configuration:', error);
+        alert('Failed to copy configuration');
+      }
+    }
+
+    async function downloadConfig(country, city, server) {
+      try {
+        const response = await fetch(`/download/${country}/${city}/${server}`);
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = `${server}.conf`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+        } else {
+          alert('Failed to download configuration');
+        }
+      } catch (error) {
+        console.error('Error downloading configuration:', error);
+        alert('Failed to download configuration');
+      }
+    }
+
+    async function showQRCode(country, city, server) {
+      try {
+        const response = await fetch(`/qrcode/${country}/${city}/${server}`);
+        if (response.ok) {
+          const qrCodeBlob = await response.blob();
+          const qrCodeUrl = URL.createObjectURL(qrCodeBlob);
+          document.getElementById('qr-code-img').src = qrCodeUrl;
+          document.getElementById('qr-modal').style.display = 'flex';
+        } else {
+          alert('Failed to fetch QR code');
+        }
+      } catch (error) {
+        console.error('Error fetching QR code:', error);
+        alert('Failed to fetch QR code');
+      }
+    }
+
+    document.getElementById('close-modal').addEventListener('click', () => {
+      document.getElementById('qr-modal').style.display = 'none';
+    });
+
+    document.getElementById('show-more-btn').addEventListener('click', displayServers);
+    document.getElementById('sort-asc-btn').addEventListener('click', () => { 
+      sortOrder = 'load-asc'; 
+      displayedServers = 0; 
+      displayServers(); 
+    });
+    document.getElementById('sort-desc-btn').addEventListener('click', () => { 
+      sortOrder = 'load-desc'; 
+      displayedServers = 0; 
+      displayServers(); 
+    });
+
+    document.getElementById('download-all-btn').addEventListener('click', () => {
+      window.location.href = '/download-all';
+    });
+
+    fetchServers();
+  </script>
+</body>
+</html>
