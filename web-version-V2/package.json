@@ -1,4 +1,14 @@
 {
+  "name": "nordvpn-configs",
+  "version": "1.0.0",
+  "description": "NordVPN WireGuard Config Generator",
+  "main": "server.js",
+  "scripts": {
+    "start": "npx pm2 start ecosystem.config.js --env production",
+    "start:node": "node server.js",
+    "dev": "node server.js",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
   "dependencies": {
     "@fastify/caching": "^9.0.1",
     "@fastify/compress": "^8.0.1",
@@ -12,5 +22,7 @@
     "pm2": "^5.4.2",
     "qrcode": "^1.5.4",
     "sharp": "^0.33.5"
-  }
+  },
+  "author": "mustafachyi",
+  "license": "ISC"
 }
