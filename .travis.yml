@@ -1,0 +1,12 @@
+language: node_js
+node_js:
+  - "22.10.0"
+
+before_install:
+  - cd web-version-V2
+
+install:
+  - npm install
+
+script:
+  - npm run start:node
