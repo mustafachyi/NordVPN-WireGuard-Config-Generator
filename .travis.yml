@@ -1,6 +1,7 @@
+dist: focal
 language: node_js
 node_js:
-  - "18.16.0"
+  - "22.10.0"
 
 before_install:
   - cd web-version-V2
