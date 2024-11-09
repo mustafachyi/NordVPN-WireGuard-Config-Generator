@@ -1,6 +1,6 @@
 language: node_js
 node_js:
-  - "22.10.0"
+  - "18.16.0"
 
 before_install:
   - cd web-version-V2
