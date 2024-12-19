@@ -88,7 +88,7 @@ Before using the script, ensure that the necessary dependencies are installed fo
 
 ### Web Version
 
-1. Visit the web tool at [nord-configs-crafter](https://nord-configs-crafter.pages.dev/).
+1. Visit the web tool at [nord-configs-crafter](https://wg-nord.pages.dev/).
 2. Follow the prompts to generate WireGuard configurations.
 3. After downloading the configuration, manually add the private key or use the access token for security.
 
