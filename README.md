@@ -37,10 +37,6 @@ Before using the script, ensure that the necessary dependencies are installed fo
 
 1. Obtain your NordVPN access token.
 2. Clone the repository.
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
 4. Run `main.py` and enter your access token.
 5. Follow the prompts to generate WireGuard configurations.
 6. Utilize `proxy_fetcher.py` for proxy servers.
@@ -69,20 +65,20 @@ Before using the script, ensure that the necessary dependencies are installed fo
 3. Clone the repository.
 4. Install dependencies:
    ```bash
-   npm install axios
+   npm install
    ```
-5. Run with npm or pre-built script.
-6. Follow the prompts to generate WireGuard configurations.
+5. Run with:
+   ```bash
+   npm start
+   ```
+7. Follow the prompts to generate WireGuard configurations.
 
 ### Ruby Version
 
 1. Install Ruby on your machine.
 2. Obtain your NordVPN access token.
 3. Clone the repository.
-4. Install dependencies:
-   ```bash
-   gem install oj
-   ```
+4. Install dependencies
 5. Run the script and enter your NordVPN access token when prompted.
 6. Follow the prompts to generate WireGuard configurations.
 
@@ -97,27 +93,6 @@ Before using the script, ensure that the necessary dependencies are installed fo
 1. Visit the new web tool remake at [nord-configs](https://nord-configs.onrender.com/).
 2. Follow the prompts to generate WireGuard configurations.
 3. After downloading the configuration, manually add the private key or use the access token for security.
-
-## Installation
-
-Clone the repository to install the tool:
-
-```bash
-git clone https://github.com/mustafachyi/NordVPN-WireGuard-Config-Generator.git
-```
-
-For Go, Rust, Node.js, Ruby, and web versions, you can compile from source or use pre-compiled executables.
-
-## Dependencies
-
-Ensure you have the following dependencies installed based on the version you choose:
-
-- **Python Version**: `aiohttp`, `aiofiles`, `numpy`
-- **Go Version**: Go programming language
-- **Rust Version**: Rust programming language
-- **Node.js Version**: `axios` library installed via `npm install axios`
-- **Ruby Version**: `oj` gem installed via `gem install oj`
-- **Web Version**: Web browser with internet access
 
 ## Contributing
 
