@@ -1,232 +1,583 @@
-use reqwest::{Client, get};
-use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap};
-use std::io::{self, Write};
+use anyhow::{Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
+use chrono::Local;
+use log::{error, info, warn};
+use regex::Regex;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::{collections::HashMap, path::PathBuf, io};
+use std::fs;
 use std::sync::Arc;
-use tokio::fs;
-use tokio::task;
-use std::cmp::Ordering;
-use tokio::fs::File;
-use std::path::Path;
-use haversine::{distance, Location, Units};
-use tokio::io::AsyncWriteExt;
+use tokio::sync::Semaphore;
+use std::process::Command;
+use indicatif::{ProgressBar, ProgressStyle};
+use parking_lot::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tracing_subscriber::FmtSubscriber;
+use std::time::Duration;
 
-pub async fn get_key(client: &Client, token: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let res = client
-        .get("https://api.nordvpn.com/v1/users/services/credentials")
-        .basic_auth("token", Some(token))
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct Server {
+    name: String,
+    hostname: String,
+    station: String,
+    load: i32,
+    country: String,
+    city: String,
+    latitude: f64,
+    longitude: f64,
+    public_key: String,
+    distance: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct Location {
+    country: Country,
+    latitude: f64,
+    longitude: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct Country {
+    name: String,
+    city: Option<City>,
+}
+
+#[derive(Debug, Deserialize)]
+struct City {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Technology {
+    identifier: String,
+    metadata: Vec<Metadata>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Metadata {
+    name: String,
+    value: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ServerResponse {
+    name: String,
+    hostname: String,
+    station: String,
+    load: Option<i32>,
+    locations: Vec<Location>,
+    technologies: Vec<Technology>,
+}
+
+#[derive(Debug)]
+struct UserConfig {
+    dns: String,
+    use_ip: bool,
+    keepalive: i32,
+}
+
+impl Default for UserConfig {
+    fn default() -> Self {
+        Self {
+            dns: "103.86.96.100".to_string(),
+            use_ip: false,
+            keepalive: 25,
+        }
+    }
+}
+
+impl UserConfig {
+    fn is_valid(&self) -> bool {
+        self.dns.chars().all(|c| c.is_ascii_digit() || c == '.') &&
+        self.keepalive >= 15 && self.keepalive <= 120
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum ConfigError {
+    #[error("Network error: {0}")]
+    NetworkError(#[from] reqwest::Error),
+    #[error("IO error: {0}")]
+    IoError(#[from] io::Error),
+    #[error("Serde JSON error: {0}")]
+    SerdeError(#[from] serde_json::Error),
+    #[error("Access token error: {0}")]
+    AccessTokenError(String),
+    #[error("Input error: {0}")]
+    InputError(String),
+    #[error("Anyhow error: {0}")]
+    AnyhowError(#[from] anyhow::Error),
+}
+
+impl From<String> for ConfigError {
+    fn from(error: String) -> Self {
+        ConfigError::InputError(error)
+    }
+}
+
+struct SharedState {
+    shutdown: AtomicBool,
+    tasks_completed: Mutex<usize>,
+    total_tasks: Mutex<usize>,
+    cleanup_done: Mutex<bool>,  
+}
+
+impl SharedState {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            shutdown: AtomicBool::new(false),
+            tasks_completed: Mutex::new(0),
+            total_tasks: Mutex::new(0),
+            cleanup_done: Mutex::new(false),  
+        })
+    }
+}
+
+async fn get_location(client: &Client) -> Result<(f64, f64)> {
+    let response = client
+        .get("https://ipinfo.io/json")
         .send()
+        .await?
+        .json::<serde_json::Value>()
         .await?;
 
-    let body = res.text().await?;
-    let v: Value = serde_json::from_str(&body)?;
+    let loc = response["loc"]
+        .as_str()
+        .context("Failed to get location")?
+        .split(',')
+        .collect::<Vec<&str>>();
 
-    match v.get("nordlynx_private_key") {
-        Some(private_key) => Ok(private_key.as_str().unwrap().to_string()),
-        None => Err("nordlynx_private_key not found".into()),
+    if loc.len() != 2 {
+        anyhow::bail!("Invalid location format");
     }
-}
 
-pub async fn get_servers(client: &Client) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
-    let res = client.get("https://api.nordvpn.com/v1/servers?limit=7000&filters[servers_technologies][identifier]=wireguard_udp").send().await?;
-    let servers: Vec<Value> = res.json().await?;
-    Ok(servers)
-}
-
-pub fn find_key(server: &Value) -> Option<String> {
-    if let Some(technologies) = server.get("technologies")?.as_array() {
-        for tech in technologies {
-            if tech.get("identifier")?.as_str()? == "wireguard_udp" {
-                if let Some(metadata) = tech.get("metadata")?.as_array() {
-                    for data in metadata {
-                        if data.get("name")?.as_str()? == "public_key" {
-                            return data.get("value")?.as_str().map(|s| s.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-fn format_name(name: &str) -> String {
-    let name = name.replace(" ", "_");
-    let name = name.replace("-", "");
-    name.replace("__", "_")
-}
-
-fn generate_config(key: &str, server: &Value) -> Option<(String, String, String, String)> {
-    if let Some(public_key) = find_key(server) {
-        let country_name = format_name(server["locations"][0]["country"]["name"].as_str().unwrap());
-        let city_name = format_name(server["locations"][0]["country"].get("city").and_then(|c| c.get("name")).and_then(|n| n.as_str()).unwrap_or("Unknown"));
-        let server_name = format_name(&format!("{}_{}", server["name"].as_str().unwrap().replace("#", ""), city_name));
-        let config = format!("[Interface]
-PrivateKey = {}
-Address = 10.5.0.2/16
-DNS = 103.86.96.100
-
-[Peer]
-PublicKey = {}
-AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = {}:51820
-PersistentKeepalive = 25
-", key, public_key, server["station"].as_str().unwrap());
-        Some((country_name, city_name, server_name, config))
-    } else {
-        println!("No WireGuard public key found for {} in {}. Skipping.", server["name"].as_str().unwrap(), server.get("city").and_then(|c| c.get("name")).and_then(|n| n.as_str()).unwrap_or("Unknown"));
-        None
-    }
-}
-
-async fn save_config(key: Arc<String>, server: &Value, path: Option<&str>) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    if server.get("locations").is_some() {
-        if let Some((country_folder, city_folder, server_name, config)) = generate_config(&key, server) {
-            let path = match path {
-                Some(p) => p.to_string(),
-                None => {
-                    let country_path = Path::new("configs").join(&country_folder);
-                    fs::create_dir_all(&country_path).await?;
-                    let city_path = country_path.join(&city_folder);
-                    fs::create_dir_all(&city_path).await?;
-                    city_path.join(format!("{}.conf", server_name)).to_str().unwrap().to_string()
-                }
-            };
-            fs::write(&path, config).await?;
-            println!("WireGuard configuration for {} saved to {}", server_name, path);
-            Ok(Some(path))
-        } else {
-            Ok(None)
-        }
-    } else {
-        Ok(None)
-    }
+    Ok((
+        loc[0].parse::<f64>()?,
+        loc[1].parse::<f64>()?,
+    ))
 }
 
 fn calculate_distance(ulat: f64, ulon: f64, slat: f64, slon: f64) -> f64 {
-    let user_location = Location { latitude: ulat, longitude: ulon };
-    let server_location = Location { latitude: slat, longitude: slon };
-    distance(user_location, server_location, Units::Kilometers)
+    let (ulon, ulat, slon, slat) = (
+        ulon.to_radians(),
+        ulat.to_radians(),
+        slon.to_radians(),
+        slat.to_radians(),
+    );
+    
+    let dlon = slon - ulon;
+    let dlat = slat - ulat;
+    
+    let a = (dlat / 2.0).sin().powi(2) + 
+            ulat.cos() * slat.cos() * (dlon / 2.0).sin().powi(2);
+    
+    2.0 * ((a).sqrt().asin()) * 6371.0
 }
 
-fn sort_servers(mut servers: Vec<Value>, ulat: f64, ulon: f64) -> Vec<Value> {
-    for server in &mut servers {
-        let slat = server["locations"][0]["latitude"].as_f64().unwrap();
-        let slon = server["locations"][0]["longitude"].as_f64().unwrap();
-        server["distance"] = json!(calculate_distance(ulat, ulon, slat, slon));
+fn is_valid_token(token: &str) -> bool {
+    let re = Regex::new(r"^[a-fA-F0-9]{64}$").unwrap();
+    re.is_match(token)
+}
+
+async fn get_private_key(client: &Client, token: &str) -> Result<String, ConfigError> {
+    let token_encoded = STANDARD.encode(format!("token:{}", token));
+    let response = client
+        .get("https://api.nordvpn.com/v1/users/services/credentials")
+        .header("Authorization", format!("Basic {}", token_encoded))
+        .send()
+        .await
+        .map_err(|_| ConfigError::AccessTokenError("Failed to connect to NordVPN API".to_string()))?;
+
+    if response.status() == 401 {
+        return Err(ConfigError::AccessTokenError("Invalid access token".to_string()));
     }
-    servers.sort_by(|a, b| {
-        let a_load = a["load"].as_f64().unwrap();
-        let b_load = b["load"].as_f64().unwrap();
-        let a_distance = a["distance"].as_f64().unwrap();
-        let b_distance = b["distance"].as_f64().unwrap();
-        a_load.partial_cmp(&b_load).unwrap_or(Ordering::Equal).then_with(|| a_distance.partial_cmp(&b_distance).unwrap_or(Ordering::Equal))
-    });
-    servers
+
+    let data = response.json::<serde_json::Value>().await
+        .map_err(|_| ConfigError::AccessTokenError("Failed to read API response".to_string()))?;
+
+    data["nordlynx_private_key"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| ConfigError::AccessTokenError("Access token is not valid for WireGuard configuration".to_string()))
 }
 
-async fn get_location() -> Result<(f64, f64), Box<dyn std::error::Error>> {
-    let res = get("https://ipinfo.io/json").await?;
-    let body = res.text().await?;
-    let v: Value = serde_json::from_str(&body)?;
-    let loc = v["loc"].as_str().unwrap().split(',').collect::<Vec<&str>>();
-    Ok((loc[0].parse()?, loc[1].parse()?))
+fn generate_config(key: &str, server: &Server, config: &UserConfig) -> String {
+    let endpoint = if config.use_ip {
+        &server.station
+    } else {
+        &server.hostname
+    };
+
+    format!(
+        "[Interface]\n\
+        PrivateKey = {}\n\
+        Address = 10.5.0.2/16\n\
+        DNS = {}\n\n\
+        [Peer]\n\
+        PublicKey = {}\n\
+        AllowedIPs = 0.0.0.0/0, ::/0\n\
+        Endpoint = {}:51820\n\
+        PersistentKeepalive = {}",
+        key, config.dns, server.public_key, endpoint, config.keepalive
+    )
+}
+
+fn get_user_preferences() -> Result<UserConfig, ConfigError> {
+    println!("\nConfiguration Options (press Enter to use defaults)");
+    
+    let mut config = UserConfig::default();
+    
+    if let Ok(input) = rprompt::prompt_reply("Enter DNS server IP (default: 103.86.96.100): ") {
+        if !input.trim().is_empty() {
+            config.dns = input;
+        }
+    }
+    
+    if let Ok(input) = rprompt::prompt_reply("Use IP instead of hostname for endpoints? (y/N): ") {
+        config.use_ip = input.trim().to_lowercase() == "y";
+    }
+    
+    if let Ok(input) = rprompt::prompt_reply("Enter PersistentKeepalive value (default: 25): ") {
+        if let Ok(value) = input.trim().parse::<i32>() {
+            if value >= 15 && value <= 120 {
+                config.keepalive = value;
+            }
+        }
+    }
+    
+    if !config.is_valid() {
+        return Err(ConfigError::InputError("Invalid configuration values".to_string()));
+    }
+    
+    Ok(config)
+}
+
+async fn get_servers(client: &Client) -> Result<Vec<ServerResponse>> {
+    let response = client
+        .get("https://api.nordvpn.com/v1/servers")
+        .query(&[
+            ("limit", "7000"),
+            ("filters[servers_technologies][identifier]", "wireguard_udp"),
+        ])
+        .send()
+        .await?
+        .json::<Vec<ServerResponse>>()
+        .await?;
+    Ok(response)
+}
+
+async fn process_servers(
+    servers: Vec<ServerResponse>,
+    user_location: (f64, f64),
+) -> Vec<Server> {
+    let (ulat, ulon) = user_location;
+    let mut processed_servers = Vec::new();
+
+    for server in servers {
+        if let Some(location) = server.locations.first() {
+            if let Some(public_key) = server
+                .technologies
+                .iter()
+                .find(|t| t.identifier == "wireguard_udp")
+                .and_then(|t| t.metadata.iter().find(|m| m.name == "public_key"))
+                .map(|m| m.value.clone())
+            {
+                let distance = calculate_distance(
+                    ulat,
+                    ulon,
+                    location.latitude,
+                    location.longitude,
+                );
+
+                processed_servers.push(Server {
+                    name: server.name,
+                    hostname: server.hostname,
+                    station: server.station,
+                    load: server.load.unwrap_or(100),
+                    country: location.country.name.clone(),
+                    city: location.country.city.as_ref().map_or(
+                        "unknown".to_string(),
+                        |c| c.name.clone(),
+                    ),
+                    latitude: location.latitude,
+                    longitude: location.longitude,
+                    public_key,
+                    distance,
+                });
+            }
+        }
+    }
+
+    processed_servers.sort_by(|a, b| {
+        a.load.cmp(&b.load).then(a.distance.partial_cmp(&b.distance).unwrap())
+    });
+    processed_servers
+}
+
+fn clear_console() {
+    if cfg!(target_os = "windows") {
+        Command::new("cmd").args(["/C", "cls"]).status().unwrap();
+    } else {
+        Command::new("clear").status().unwrap();
+    }
+}
+
+fn setup_logging() {
+    FmtSubscriber::builder()
+        .with_env_filter("info")
+        .with_target(false)
+        .with_thread_ids(false)
+        .with_file(false)
+        .with_line_number(false)
+        .with_ansi(false)
+        .with_timer(tracing_subscriber::fmt::time::ChronoUtc::rfc_3339())  // Fixed method name
+        .with_level(true)
+        .init();
+}
+
+fn setup_progress_bar(len: u64) -> ProgressBar {
+    let pb = ProgressBar::new(len);
+    pb.set_style(ProgressStyle::default_bar()
+        .template("[{elapsed_precise}] [{bar:40}] {pos}/{len} ({eta})")
+        .unwrap()
+        .progress_chars("=> "));
+    pb.enable_steady_tick(Duration::from_millis(100));
+    pb
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut token = String::new();
-    print!("Please enter your token: ");
-    io::stdout().flush().unwrap(); // Flush stdout to display the prompt before waiting for input
-    io::stdin().read_line(&mut token).unwrap();
+async fn main() -> Result<(), ConfigError> {
+    setup_logging();
+    let state = SharedState::new();
+    
+    // Setup ctrl-c handler with improved cleanup
+    let state_clone = Arc::clone(&state);
+    ctrlc::set_handler(move || {
+        let mut cleanup_done = state_clone.cleanup_done.lock();
+        if !*cleanup_done {  
+            state_clone.shutdown.store(true, Ordering::SeqCst);
+            println!("\nReceived shutdown signal, cleaning up...");
+            println!("Press Ctrl+C again to force exit");
+            *cleanup_done = true;
+        } else {
+            println!("\nForce exiting...");
+            std::process::exit(0);
+        }
+    }).expect("Error setting Ctrl-C handler");
+
+    println!("\nNordVPN Configuration Generator");
+    println!("==============================");
+    
+    let token = rprompt::prompt_reply("Please enter your access token (64 character hex string):\n")?;
+    clear_console();  // Clear console immediately after token input
+    
+    if !is_valid_token(&token) {
+        error!("Invalid token format");
+        return Ok(());
+    }
 
     let client = Client::new();
-    let mut servers = get_servers(&client).await?;
-    let private_key = Arc::new(get_key(&client, token.trim()).await?);
+    
+    info!("Validating access token");
+    let private_key = match get_private_key(&client, &token).await {
+        Ok(key) => {
+            clear_console();
+            info!("Access token validated successfully");
+            key
+        },
+        Err(e) => {
+            error!("{}", e);
+            return Ok(());
+        }
+    };
 
-    let (ulat, ulon) = get_location().await?;
-    servers = sort_servers(servers, ulat, ulon);
+    let user_config = get_user_preferences()?;
+    
+    let location = get_location(&client).await.map_err(ConfigError::AnyhowError)?;
+    info!("Current location: {:?}", location);
 
-    let tasks: Vec<_> = servers.iter().cloned().map(|server| {
-		let private_key = Arc::clone(&private_key);
-		task::spawn(async move {
-			match save_config(private_key, &server, None).await {
-				Ok(_) => (),
-				Err(e) => eprintln!("Error saving config for server {}: {}", server["name"].as_str().unwrap_or("Unknown"), e),
-			}
-		})
-	}).collect();
+    // Start timing here, just before the actual work begins
+    let start_time = std::time::Instant::now();
 
-    for t in tasks {
-        t.await?;
+    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
+    let output_dir = PathBuf::from(format!("nordvpn_configs_{}", timestamp));
+    fs::create_dir_all(&output_dir)?;
+    
+    fs::create_dir_all(output_dir.join("configs"))?;
+    fs::create_dir_all(output_dir.join("best_configs"))?;
+
+    info!("Retrieving server list from NordVPN API");
+    let servers = get_servers(&client).await.map_err(ConfigError::AnyhowError)?;
+    info!("Found {} servers to process", servers.len());
+    let processed_servers = process_servers(servers, location).await;
+    
+    info!("Starting configuration generation");
+    info!("Creating standard configurations");
+    
+    let semaphore = Arc::new(Semaphore::new(200));
+    let mut tasks = Vec::new();
+
+    let total_configs = processed_servers.len() * 2; // Standard + Best configs
+    *state.total_tasks.lock() = total_configs;
+    let progress_bar = setup_progress_bar(total_configs as u64);
+
+    // Generate standard configs
+    for server in &processed_servers {
+        if state.shutdown.load(Ordering::SeqCst) {
+            warn!("Shutdown requested, stopping config generation");
+            break;
+        }
+
+        let sem = semaphore.clone();
+        let config = generate_config(&private_key, server, &user_config);
+        let path = output_dir.join("configs")
+            .join(sanitize_filename(&server.country))
+            .join(sanitize_filename(&server.city));
+        let filename = format!("{}.conf", sanitize_filename(&server.name));
+        
+        let pb = progress_bar.clone();
+        let state = state.clone();
+        tasks.push(tokio::spawn(async move {
+            let result = async {
+                let _permit = sem.acquire().await?;
+                fs::create_dir_all(&path)?;
+                fs::write(path.join(filename), config)?;
+                Ok::<_, anyhow::Error>(())
+            }.await;
+
+            *state.tasks_completed.lock() += 1;
+            pb.inc(1);
+            result
+        }));
     }
 
-    let mut servers_by_location: HashMap<String, HashMap<String, Vec<Vec<String>>>> = HashMap::new();
-	for server in &servers {
-		let country = server["locations"][0]["country"]["name"].as_str().unwrap().to_string();
-		let city = server["locations"][0]["country"]["city"]["name"].as_str().unwrap_or("Unknown").to_string();
-		let server_info = vec![server["name"].as_str().unwrap().to_string(), server["load"].as_f64().unwrap().to_string()];
-		servers_by_location.entry(country).or_insert_with(HashMap::new).entry(city).or_insert_with(Vec::new).push(server_info);
-	}
-
-    for (_, cities) in &mut servers_by_location {
-        for (_, servers) in cities {
-            servers.sort_by(|a, b| a[1].parse::<f64>().unwrap().partial_cmp(&b[1].parse::<f64>().unwrap()).unwrap());
+    // Generate best configs
+    let mut best_servers: HashMap<(String, String), Server> = HashMap::new();
+    for server in &processed_servers {
+        let key = (server.country.clone(), server.city.clone());
+        if !best_servers.contains_key(&key) || 
+           server.load < best_servers.get(&key).unwrap().load {
+            best_servers.insert(key, server.clone());
         }
     }
 
-    fs::create_dir_all("best_configs").await?;
-
-    let original_servers = servers.clone(); // Clone the servers vector
-
-    for (country, cities) in &servers_by_location {
-        let safe_country_name = country.replace(" ", "_");
-        for (city, servers) in cities {
-            let best_server = &servers[0];
-            // Find the server Value that corresponds to the best server
-            let best_server_value = original_servers.iter().find(|server| server["name"].as_str().unwrap() == best_server[0]).unwrap();
-            let safe_city_name = city.replace(" ", "_");
-            // Save the config for the best server
-            save_config(Arc::clone(&private_key), best_server_value, Some(&format!("best_configs/{}_{}.conf", safe_country_name, safe_city_name))).await?;
+    // Add best server configs to tasks
+    for server in best_servers.values() {
+        if state.shutdown.load(Ordering::SeqCst) {
+            warn!("Shutdown requested, stopping config generation");
+            break;
         }
+
+        let sem = semaphore.clone();
+        let config = generate_config(&private_key, server, &user_config);
+        let path = output_dir.join("best_configs")
+            .join(sanitize_filename(&server.country))
+            .join(sanitize_filename(&server.city));
+        let filename = format!("{}.conf", sanitize_filename(&server.name));
+        
+        let pb = progress_bar.clone();
+        let state = state.clone();
+        tasks.push(tokio::spawn(async move {
+            let result = async {
+                let _permit = sem.acquire().await?;
+                fs::create_dir_all(&path)?;
+                fs::write(path.join(filename), config)?;
+                Ok::<_, anyhow::Error>(())
+            }.await;
+
+            *state.tasks_completed.lock() += 1;
+            pb.inc(1);
+            result
+        }));
     }
 
-    let servers_by_location = servers_by_location.into_iter().collect::<BTreeMap<_, _>>();
-
-    // Make file mutable
-    let mut file = File::create("servers.json").await?;
-
-    let last_country_index = servers_by_location.len() - 1;
-    file.write_all(b"{\n").await?;
-    for (index, (country, cities)) in servers_by_location.iter().enumerate() {
-        file.write_all(format!("  \"{}\": {{\n", country).as_bytes()).await?;
-        let last_city_index = cities.len() - 1;
-        for (city_index, (city, servers)) in cities.iter().enumerate() {
-            file.write_all(format!("    \"{}\": [\n", city).as_bytes()).await?;
-            let last_server_index = servers.len() - 1;
-            for (server_index, server) in servers.iter().enumerate() {
-                file.write_all(format!("      [\"{}\", {}]", server[0], server[1]).as_bytes()).await?;
-                if server_index < last_server_index {
-                    file.write_all(b",\n").await?;
-                } else {
-                    file.write_all(b"\n").await?;
+    // Modify tasks handling to respect shutdown signal
+    let mut completed_tasks = Vec::new();
+    for task in tasks {
+        if state.shutdown.load(Ordering::SeqCst) {
+            warn!("Shutdown requested, waiting for current tasks to complete...");
+            // Wait for already spawned tasks
+            for task in completed_tasks {
+                if let Err(e) = task.await {
+                    warn!("Task error during shutdown: {}", e);
                 }
             }
-            file.write_all(b"    ]").await?;
-            if city_index < last_city_index {
-                file.write_all(b",\n").await?;
-            } else {
-                file.write_all(b"\n").await?;
+            info!("Cleanup completed, exiting...");
+            return Ok(());
+        }
+        completed_tasks.push(task);
+    }
+
+    // Wait for all tasks to complete with timeout
+    let mut errors = Vec::new();
+    for task in completed_tasks {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), task).await {
+            Ok(result) => match result {
+                Ok(Ok(_)) => continue,
+                Ok(Err(e)) => errors.push(e),
+                Err(e) => errors.push(anyhow::Error::msg(e.to_string())),
+            },
+            Err(_) => {
+                warn!("Task timed out");
+                continue;
             }
         }
-        file.write_all(b"  }").await?;
-        if index < last_country_index {
-            file.write_all(b",\n").await?;
-        } else {
-            file.write_all(b"\n").await?;
+    }
+
+    progress_bar.finish_and_clear();
+
+    // Report errors if any
+    if !errors.is_empty() {
+        warn!("Process completed with {} errors", errors.len());
+        for (i, error) in errors.iter().enumerate() {
+            warn!("Error {}/{}: {}", i + 1, errors.len(), error);
         }
     }
-    file.write_all(b"}\n").await?;
+
+    info!("Saving server information...");
+    let mut servers_info = serde_json::Map::new();
+    for server in &processed_servers {
+        let country_entry = servers_info
+            .entry(&server.country)
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        
+        let city_entry = country_entry
+            .as_object_mut()
+            .unwrap()
+            .entry(&server.city)
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+
+        if let Some(obj) = city_entry.as_object_mut() {
+            obj.insert("distance".to_string(), json!(server.distance as i32));
+            
+            // Update servers array instead of overwriting
+            let servers_array = obj.entry("servers")
+                .or_insert(json!([]));
+            
+            if let Some(arr) = servers_array.as_array_mut() {
+                arr.push(json!([&server.name, server.load]));
+            }
+        }
+    }
+
+    let servers_json = serde_json::to_string_pretty(&servers_info)?;
+    fs::write(output_dir.join("servers.json"), servers_json)?;
+
+    let elapsed = start_time.elapsed();
+    info!("---------------------------------------");
+    info!("Configuration generation completed");
+    info!("Configs saved to: {}", output_dir.display());
+    info!("Total time: {:.1} seconds", elapsed.as_secs_f64());
 
     Ok(())
+}
+
+fn sanitize_filename(input: &str) -> String {
+    input.to_lowercase()
+        .replace(|c: char| !c.is_ascii_alphanumeric(), "_")
+        .replace("__", "_")
+        .trim_matches('_')
+        .to_string()
 }

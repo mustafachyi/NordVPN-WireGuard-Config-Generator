@@ -1,16 +1,48 @@
 [package]
-name = "nordvpn-wireguard-config-generator"
+name = "nord-configs-generator"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = 'abort'
+strip = true
+debug = false
+incremental = false
+overflow-checks = false
 
 [dependencies]
-futures = "0.3.30"
-reqwest = { version = "0.12.3", features = ["json"] }
-serde_json = "1.0.116"
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { version = "*", features = ["full"] }
+reqwest = { version = "*", features = ["json"] }
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+base64 = "*"
+chrono = "*"
+regex = "*"
+async-trait = "*"
+futures = "*"
+tokio-stream = "*"
+anyhow = "*"
+thiserror = "*"
+log = "*"
+env_logger = "*"
+directories = "*"
+rprompt = "*"
+rayon = "*"
+tracing = "*"
+tracing-subscriber = { version = "*", features = ["env-filter", "chrono"] }
+indicatif = "*"
+console = "*"
+ctrlc = "*"
+parking_lot = "*"
 
-[profile.release]
-lto = true
-codegen-units = 1
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = ["winuser"] }
+
+[build-dependencies]
+winres = "0.1"
