@@ -35,17 +35,16 @@ This tool makes it simple to create WireGuard configs for NordVPN and fetch prox
 2. Run the tool and follow the prompts.  
 
 ### Node.js  
-1. Install Node.js, clone the repo, and install dependencies (`npm install`).  
-2. Run the tool (`npm start`) and follow the prompts.  
+1. Install Node.js, clone the repo, and install dependencies `npm install`.  
+2. Run the tool `npm start` and follow the prompts.  
 
 ### Ruby  
-1. Install Ruby, clone the repo, and install dependencies.  
-2. Run the script and follow the prompts.  
+1. Install Ruby, clone the repo, and install dependencies `bundle install`.  
+2. Run the script `ruby main.rb` and follow the prompts.  
 
 ### Web  
 1. Visit [nord-configs-crafter](https://wg-nord.pages.dev/) or the remake at [nord-configs](https://nord-configs.onrender.com/).  
-2. Follow the steps to generate configs.  
-3. Add your private key manually for extra security.  
+2. Follow the steps to generate configs.
 
 ## Contributing  
 Want to help? Open issues or submit pull requests on GitHub.  
