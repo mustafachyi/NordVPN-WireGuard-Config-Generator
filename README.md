@@ -26,9 +26,10 @@ This tool makes it simple to create WireGuard configs for NordVPN and fetch prox
 3. Use `proxy_fetcher.py` to get proxy servers.  
 4. (Optional) Use `get-key.py` for secure private key setup.  
 
-### Go (fastest)  
-1. Install Go, clone the repo, and compile or use pre-built files.  
-2. Run the tool and follow the prompts.  
+### Go (fastest mybe ?)  
+1. Install Go, clone the repo, and compile or use pre-built files.
+2. Run `go tidy` to organize dependencies.
+3. Use `go run main.go` to execute.  
 
 ### Rust  
 1. Install Rust, clone the repo, and compile or use pre-built files.  
