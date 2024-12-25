@@ -56,6 +56,7 @@ This project uses the GNU License. See the LICENSE file for details.
 
 ## Support  
 - **Star on GitHub**: Show your support by starring this project.  
-- **Subscribe to NordVPN**: Use [this referral link](https://ref.nordvpn.com/MXIVDoJGpKT) to get your NordVPN subscription. You'll receive 1-3 extra months for free, and you'll support the project at no extra cost.  
+- **Subscribe to NordVPN**: Use [this referral link](https://ref.nordvpn.com/MXIVDoJGpKT) to get your NordVPN subscription. You'll receive 1-3 extra months for free, and you'll support the project at no extra cost.
+- **Join Us!**: Interested in discussing this project, sharing suggestions, addressing issues, or brainstorming future ideas? Connect with us on [Telegram](https://t.me/+GpyxZJi2wEYxNTI0).
 
 Enjoy a faster, simpler NordVPN setup with this tool!  
