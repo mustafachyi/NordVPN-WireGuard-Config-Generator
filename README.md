@@ -44,8 +44,9 @@ This tool makes it simple to create WireGuard configs for NordVPN and fetch prox
 2. Run the script `ruby main.rb` and follow the prompts.  
 
 ### Web  
-1. Visit [nord-configs-crafter](https://wg-nord.pages.dev/) or the remake at [nord-configs](https://nord-configs.onrender.com/).  
+1. Visit [nord-configs-crafter](https://wg-nord.pages.dev/) or the remake at [nord-configs](https://nord-configs.onrender.com/). 
 2. Follow the steps to generate configs.
+3. Enjoy !
 
 ## Contributing  
 Want to help? Open issues or submit pull requests on GitHub.  
