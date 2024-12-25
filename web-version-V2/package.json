@@ -1,28 +1,21 @@
 {
-  "name": "nordvpn-configs",
-  "version": "1.0.0",
-  "description": "NordVPN WireGuard Config Generator",
-  "main": "server.js",
-  "scripts": {
-    "start": "npx pm2 start ecosystem.config.js --env production",
-    "start:node": "node server.js",
-    "dev": "node server.js",
-    "test": "echo \"No tests specified\" && exit 0"
+  "name": "bun-backend",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/qrcode": "^1.5.5"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@fastify/caching": "^9.0.1",
-    "@fastify/compress": "^8.0.1",
-    "@fastify/cors": "^10.0.1",
-    "@fastify/static": "^8.0.2",
-    "archiver": "^7.0.1",
-    "axios": "^1.7.7",
-    "dotenv": "^16.4.5",
-    "fastify": "^5.0.0",
+    "hono-compress": "^0.7.0",
     "jszip": "^3.10.1",
-    "pm2": "^5.4.2",
     "qrcode": "^1.5.4",
     "sharp": "^0.33.5"
   },
-  "author": "mustafachyi",
-  "license": "ISC"
+  "trustedDependencies": [
+    "@mongodb-js/zstd"
+  ]
 }
