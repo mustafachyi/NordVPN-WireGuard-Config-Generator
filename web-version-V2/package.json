@@ -10,7 +10,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "hono-compress": "0.6.0",
+    "hono-compress": "^0.7.0",
     "qrcode": "^1.5.4",
     "sharp": "^0.33.5"
   },
