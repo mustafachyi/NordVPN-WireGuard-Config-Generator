@@ -9,7 +9,11 @@ export interface ConfigOptions {
 
 export const CONFIG_VALIDATION = {
   privateKey: (value?: string) => /^[A-Za-z0-9+/]{43}=$/.test(value || ''),
-  dns: (value?: string) => /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(value || ''),
+  dns: (value?: string) => {
+    if (!value) return true;
+    const ips = value.split(',').map(ip => ip.trim());
+    return ips.every(ip => /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(ip));
+  },
   keepalive: (value?: number) => typeof value === 'number' && value >= 15 && value <= 120
 };
 
@@ -35,11 +39,14 @@ export function generateConfig(
   publicKey: string,
   options: ConfigOptions = {}
 ): string {
-  const endpoint = options.useStation ? server.station : server.hostname;  // defaults to hostname if not specified
+  const endpoint = options.useStation ? server.station : server.hostname;
+  
+  // Format DNS entries with commas if multiple IPs are provided
+  const dns = options.dns ? options.dns.split(',').map(ip => ip.trim()).join(', ') : DEFAULT_CONFIG.dns;
   
   return CONFIG_TEMPLATE
     .replace('{private_key}', options.privateKey || DEFAULT_CONFIG.privateKey)
-    .replace('{dns}', options.dns || DEFAULT_CONFIG.dns)
+    .replace('{dns}', dns)
     .replace('{public_key}', publicKey)
     .replace('{endpoint}', endpoint)
     .replace('{keepalive}', String(options.keepalive || DEFAULT_CONFIG.keepalive));

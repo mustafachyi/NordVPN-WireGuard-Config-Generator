@@ -4,6 +4,7 @@ import { makeRequest, mockServerResponse, testServers, validTestToken, invalidTe
 import type { ConfigRequest } from "../utils/__tests__/test-utils";
 import { Hono } from "hono";
 import { serve } from "bun";
+import { CONFIG_VALIDATION } from '../services/configService';
 
 describe("Nord VPN Config Generator Tests", () => {
   describe("Logger System", () => {
@@ -214,7 +215,6 @@ describe("Nord VPN Config Generator Tests", () => {
       // Create a test server
       const app = new Hono();
       
-      // Add your routes here
       app.get("/api/servers", async (c) => {
         const cached = await mockServerResponse(testServers);
         
@@ -240,7 +240,11 @@ describe("Nord VPN Config Generator Tests", () => {
       app.post("/api/key", async (c) => {
         const body = await c.req.json();
         
-        if (!body.token || body.token.length !== 64 || body.token !== validTestToken) {
+        if (!body.token) {
+          return c.json({ error: "Token required" }, 400);
+        }
+
+        if (body.token !== validTestToken) {
           return c.json({ error: "Invalid token" }, 400);
         }
 
@@ -254,14 +258,20 @@ describe("Nord VPN Config Generator Tests", () => {
           return c.json({ error: "Missing required fields" }, 400);
         }
 
-        if (body.dns && !body.dns.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
-          return c.json({ error: "Invalid DNS format" }, 400);
+        if (body.dns) {
+          const ips = body.dns.split(',').map((ip: string) => ip.trim());
+          const isValid = ips.every((ip: string) => /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip));
+          if (!isValid) {
+            return c.json({ error: "Invalid DNS format" }, 400);
+          }
         }
+
+        const dns = body.dns ? body.dns.split(',').map((ip: string) => ip.trim()).join(', ') : "103.86.96.100";
 
         const config = `[Interface]
 PrivateKey = test_key
 Address = 10.5.0.2/16
-DNS = ${body.dns || "103.86.96.100"}
+DNS = ${dns}
 
 [Peer]
 PublicKey = test_public_key
@@ -285,6 +295,14 @@ PersistentKeepalive = ${body.keepalive || 25}`;
           return c.json({ error: "Missing required fields" }, 400);
         }
 
+        if (body.dns) {
+          const ips = body.dns.split(',').map((ip: string) => ip.trim());
+          const isValid = ips.every((ip: string) => /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip));
+          if (!isValid) {
+            return c.json({ error: "Invalid DNS format" }, 400);
+          }
+        }
+
         // Return a mock QR code image
         return new Response("Mock QR Code", {
           headers: {
@@ -302,10 +320,20 @@ PersistentKeepalive = ${body.keepalive || 25}`;
           return c.json({ error: "Missing required fields" }, 400);
         }
 
+        if (body.dns) {
+          const ips = body.dns.split(',').map((ip: string) => ip.trim());
+          const isValid = ips.every((ip: string) => /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip));
+          if (!isValid) {
+            return c.json({ error: "Invalid DNS format" }, 400);
+          }
+        }
+
+        const dns = body.dns ? body.dns.split(',').map((ip: string) => ip.trim()).join(', ') : "103.86.96.100";
+
         const config = `[Interface]
 PrivateKey = test_key
 Address = 10.5.0.2/16
-DNS = ${body.dns || "103.86.96.100"}
+DNS = ${dns}
 
 [Peer]
 PublicKey = test_public_key
@@ -317,8 +345,7 @@ PersistentKeepalive = ${body.keepalive || 25}`;
           headers: {
             "Content-Type": "application/x-wireguard-config",
             "Content-Disposition": `attachment; filename="${body.name}.conf"`,
-            "Cache-Control": "public, max-age=300",
-            "Vary": "Accept-Encoding"
+            "Cache-Control": "private, no-cache, no-store, must-revalidate"
           }
         });
       });
@@ -489,6 +516,75 @@ PersistentKeepalive = ${body.keepalive || 25}`;
 
         expect(response.headers.get("Cache-Control")).toBe("public, max-age=300");
         expect(response.headers.get("Vary")).toBe("Accept-Encoding");
+      });
+    });
+  });
+
+  describe("DNS Configuration", () => {
+    describe("Validation", () => {
+      test("should accept single valid DNS", () => {
+        const validRequest = { ...validConfigRequest, dns: "1.1.1.1" };
+        expect(CONFIG_VALIDATION.dns(validRequest.dns)).toBe(true);
+      });
+
+      test("should accept multiple valid DNS", () => {
+        const validRequest = { ...validConfigRequest, dns: "1.1.1.1,8.8.8.8,9.9.9.9" };
+        expect(CONFIG_VALIDATION.dns(validRequest.dns)).toBe(true);
+      });
+
+      test("should accept multiple DNS with various spacing", () => {
+        const validRequest = { ...validConfigRequest, dns: "1.1.1.1,   8.8.8.8,     9.9.9.9" };
+        expect(CONFIG_VALIDATION.dns(validRequest.dns)).toBe(true);
+      });
+
+      test("should reject if any DNS is invalid", () => {
+        const invalidCombos = [
+          "1.1.1.1,invalid.ip",
+          "1.1.1.1,256.256.256.256",
+          "1.1.1.1,8.8.8",
+          "1.1.1.1,8.8.8.8."
+        ];
+        
+        invalidCombos.forEach(dns => {
+          expect(CONFIG_VALIDATION.dns(dns)).toBe(false);
+        });
+      });
+
+      test("should handle empty or undefined DNS", () => {
+        expect(CONFIG_VALIDATION.dns()).toBe(true);
+        expect(CONFIG_VALIDATION.dns("")).toBe(true);
+      });
+    });
+
+    describe("Configuration Generation", () => {
+      test("should generate config with single DNS", async () => {
+        const response = await makeRequest("POST", "/api/config", {
+          ...validConfigRequest,
+          dns: "1.1.1.1"
+        });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toContain("DNS = 1.1.1.1");
+      });
+
+      test("should generate config with multiple DNS", async () => {
+        const response = await makeRequest("POST", "/api/config", {
+          ...validConfigRequest,
+          dns: "1.1.1.1,8.8.8.8"
+        });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toContain("DNS = 1.1.1.1, 8.8.8.8");
+      });
+
+      test("should reject config with invalid DNS combination", async () => {
+        const response = await makeRequest("POST", "/api/config", {
+          ...validConfigRequest,
+          dns: "1.1.1.1,invalid.ip"
+        });
+
+        expect(response.status).toBe(400);
+        expect(response.body).toHaveProperty("error");
       });
     });
   });

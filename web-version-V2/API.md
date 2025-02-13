@@ -103,7 +103,7 @@ Returns WireGuard configuration as plain text.
   "city": "new_york",
   "name": "us8675_wireguard",
   "privateKey": "base64_private_key=",
-  "dns": "103.86.96.100",
+  "dns": "103.86.96.100, 8.8.8.8",
   "endpoint": "hostname",
   "keepalive": 25
 }
@@ -114,9 +114,14 @@ Returns WireGuard configuration as plain text.
 - `city`: Lowercase, underscored string
 - `name`: Server name as returned by /api/servers
 - `privateKey`: (Optional) 44-char Base64 string ending with '='
-- `dns`: (Optional) Valid IPv4 address
+- `dns`: (Optional) Single or multiple IPv4 addresses separated by commas (e.g., "1.1.1.1, 8.8.8.8")
 - `endpoint`: (Optional) "hostname" or "station"
 - `keepalive`: (Optional) Number between 15-120
+
+**DNS Format Examples:**
+- Single DNS: `"103.86.96.100"`
+- Multiple DNS: `"103.86.96.100, 8.8.8.8"`
+- Multiple DNS with custom spacing: `"103.86.96.100,  8.8.8.8,   1.1.1.1"`
 
 **Response:**
 - Content-Type: text/plain; charset=utf-8
@@ -158,7 +163,7 @@ Same request body as /api/config.
 [Interface]
 PrivateKey=[44_char_base64_key]
 Address=10.5.0.2/16
-DNS=[dns_ip]
+DNS=1.1.1.1, 8.8.8.8
 
 [Peer]
 PublicKey=[server_public_key]

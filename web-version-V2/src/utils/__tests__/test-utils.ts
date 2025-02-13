@@ -1,4 +1,4 @@
-import type { Mock } from "bun:test";
+import type { GroupedServers } from "../../services/serverService";
 
 export interface TestResponse {
   status: number;
@@ -16,58 +16,21 @@ export interface ConfigRequest {
   keepalive?: number;
 }
 
-export async function makeRequest(
-  method: string,
-  path: string,
-  body?: any,
-  headers?: HeadersInit
-): Promise<TestResponse> {
-  const url = new URL(path, "http://localhost:3000");
-  const response = await fetch(url, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  const responseBody = response.headers.get("content-type")?.includes("application/json")
-    ? await response.json()
-    : await response.text();
-
-  return {
-    status: response.status,
-    headers: response.headers,
-    body: responseBody,
-  };
-}
-
-export function mockServerResponse(data: any = {}, etag: string = "test-etag") {
-  return {
-    data: JSON.stringify(data),
-    etag,
-  };
-}
-
-export const validTestToken = "a".repeat(64);
+export const validTestToken = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
 export const invalidTestToken = "invalid_token";
 
-export const testServers = {
-  united_states: {
-    new_york: [
+export const testServers: GroupedServers = {
+  "united_states": {
+    "new_york": [
       {
         name: "us8675_wireguard",
+        station: "station.nordvpn.com",
+        hostname: "hostname.nordvpn.com",
         load: 45,
-      },
-    ],
-    miami: [
-      {
-        name: "us1234_wireguard",
-        load: 30,
-      },
-    ],
-  },
+        keyId: 1
+      }
+    ]
+  }
 };
 
 export const validConfigRequest: ConfigRequest = {
@@ -77,5 +40,44 @@ export const validConfigRequest: ConfigRequest = {
   privateKey: "base64_encoded_private_key=",
   dns: "103.86.96.100",
   endpoint: "hostname",
-  keepalive: 25,
-}; 
+  keepalive: 25
+};
+
+export async function mockServerResponse(data: any) {
+  return {
+    data: JSON.stringify(data),
+    etag: "test-etag"
+  };
+}
+
+export async function makeRequest(
+  method: string,
+  path: string,
+  body?: any,
+  headers: Record<string, string> = {}
+) {
+  try {
+    const response = await fetch(`http://localhost:3000${path}`, {
+      method,
+      headers: {
+        ...(body ? { "Content-Type": "application/json" } : {}),
+        ...headers
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+
+    const contentType = response.headers.get("Content-Type");
+    const responseBody = contentType?.includes("application/json")
+      ? await response.json()
+      : await response.text();
+
+    return {
+      status: response.status,
+      headers: response.headers,
+      body: responseBody
+    };
+  } catch (error) {
+    console.error("Request failed:", error);
+    throw error;
+  }
+} 
