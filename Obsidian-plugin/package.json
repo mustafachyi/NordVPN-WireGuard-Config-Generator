@@ -1,0 +1,39 @@
+{
+	"name": "nordvpn-config-generator",
+	"version": "1.0.0",
+	"description": "Obsidian plugin for NordVPN WireGuard configuration generation - Part of NordVPN WireGuard Config Generator suite",
+	"main": "main.js",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"version": "node version-bump.mjs && git add manifest.json versions.json"
+	},
+	"keywords": [
+		"obsidian",
+		"nordvpn",
+		"wireguard",
+		"vpn",
+		"config-generator",
+		"wireguard-configuration"
+	],
+	"author": "Ahmed Touhami (mustafachyi)",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/mustafachyi/NordVPN-WireGuard-Config-Generator"
+	},
+	"homepage": "https://nord-configs-crafter.pages.dev/",
+	"license": "GPL-3.0",
+	"devDependencies": {
+		"@types/node": "^16.11.6",
+		"@typescript-eslint/eslint-plugin": "5.29.0",
+		"@typescript-eslint/parser": "5.29.0",
+		"builtin-modules": "3.3.0",
+		"esbuild": "0.17.3",
+		"obsidian": "latest",
+		"tslib": "2.4.0",
+		"typescript": "4.7.4"
+	},
+	"dependencies": {
+		"axios": "^1.7.9"
+	}
+}
