@@ -292,11 +292,27 @@ export default class NordVPNPlugin extends Plugin {
 		return data;
 	}
 
+	private sanitizeName(name: string): string {
+		return name.toLowerCase()
+			.replace(/\s+/g, '_')
+			.replace(/(\d+)/g, '_$1')
+			.replace(/and/g, '_and_')
+			.replace(/_{2,}/g, '_')
+			.replace(/^_+|_+$/g, '')
+			.replace(/[^a-z0-9_]/g, '_')
+			.replace(/_{2,}/g, '_');
+	}
+
+	private sanitizeApiName(name: string): string {
+		// For API requests, we only lowercase and remove spaces
+		return name.toLowerCase().replace(/\s+/g, '');
+	}
+
 	private createConfigRequest(privateKey: string | null, server: { country: string; city: string; name: string }): ConfigRequest {
 		return {
-			country: this.sanitizeName(server.country),
-			city: this.sanitizeName(server.city),
-			name: this.sanitizeName(server.name),
+			country: this.sanitizeApiName(server.country),
+			city: this.sanitizeApiName(server.city),
+			name: this.sanitizeApiName(server.name),
 			...(privateKey && { privateKey }),
 			dns: this.settings.dns,
 			endpoint: this.settings.endpoint_type,
@@ -313,22 +329,11 @@ export default class NordVPNPlugin extends Plugin {
 		return URL.createObjectURL(blob);
 	}
 
-	private sanitizeName(name: string): string {
-		return name.toLowerCase()
-			.replace(/\s+/g, '_')
-			.replace(/(\d+)/g, '_$1')
-			.replace(/and/g, '_and_')
-			.replace(/_{2,}/g, '_')
-			.replace(/^_+|_+$/g, '')
-			.replace(/[^a-z0-9_]/g, '_')
-			.replace(/_{2,}/g, '_');
-	}
-
 	async saveConfig(privateKey: string | null, server: ConfigServerInfo, basePath: string) {
 		const config = await this.generateConfig(privateKey, {
-			country: this.sanitizeName(server.country),
-			city: this.sanitizeName(server.city),
-			name: server.name
+			country: this.sanitizeApiName(server.country),
+			city: this.sanitizeApiName(server.city),
+			name: this.sanitizeApiName(server.name)
 		});
 
 		try {
