@@ -1,27 +1,11 @@
 import type { ProcessedServer } from "./serverService";
 
-export interface ConfigOptions {
-  privateKey?: string;
-  dns?: string;
-  useStation?: boolean;
-  keepalive?: number;
-}
-
-export const CONFIG_VALIDATION = {
-  privateKey: (value?: string) => /^[A-Za-z0-9+/]{43}=$/.test(value || ''),
-  dns: (value?: string) => {
-    if (!value) return true;
-    const ips = value.split(',').map(ip => ip.trim());
-    return ips.every(ip => /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(ip));
-  },
-  keepalive: (value?: number) => typeof value === 'number' && value >= 15 && value <= 120
-};
-
+// Constants
 const DEFAULT_CONFIG = {
   privateKey: "YOUR_PRIVATE_KEY",
   dns: "103.86.96.100",
   keepalive: 25
-};
+} as const;
 
 const CONFIG_TEMPLATE = `[Interface]
 PrivateKey={private_key}
@@ -32,22 +16,59 @@ DNS={dns}
 PublicKey={public_key}
 AllowedIPs=0.0.0.0/0,::/0
 Endpoint={endpoint}:51820
-PersistentKeepalive={keepalive}`;
+PersistentKeepalive={keepalive}` as const;
 
+// Types
+export interface ConfigOptions {
+  privateKey?: string;
+  dns?: string;
+  useStation?: boolean;
+  keepalive?: number;
+}
+
+// Validation patterns
+const PATTERNS = {
+  privateKey: /^[A-Za-z0-9+/]{43}=$/,
+  ipv4: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
+} as const;
+
+// Validation functions
+export const CONFIG_VALIDATION = {
+  privateKey: (value?: string): boolean => 
+    !value || PATTERNS.privateKey.test(value),
+
+  dns: (value?: string): boolean => 
+    !value || value.split(',')
+      .map(ip => ip.trim())
+      .every(ip => PATTERNS.ipv4.test(ip)),
+
+  keepalive: (value?: number): boolean => 
+    typeof value === 'undefined' || (value >= 15 && value <= 120)
+} as const;
+
+/**
+ * Generates WireGuard configuration
+ * @param server - Server configuration
+ * @param publicKey - Server's public key
+ * @param options - Configuration options
+ */
 export function generateConfig(
   server: ProcessedServer, 
   publicKey: string,
-  options: ConfigOptions = {}
+  { 
+    privateKey = DEFAULT_CONFIG.privateKey,
+    dns = DEFAULT_CONFIG.dns,
+    useStation = false,
+    keepalive = DEFAULT_CONFIG.keepalive 
+  }: ConfigOptions = {}
 ): string {
-  const endpoint = options.useStation ? server.station : server.hostname;
-  
-  // Format DNS entries with commas if multiple IPs are provided
-  const dns = options.dns ? options.dns.split(',').map(ip => ip.trim()).join(', ') : DEFAULT_CONFIG.dns;
-  
+  const endpoint = useStation ? server.station : server.hostname;
+  const formattedDns = dns.split(',').map(ip => ip.trim()).join(', ');
+
   return CONFIG_TEMPLATE
-    .replace('{private_key}', options.privateKey || DEFAULT_CONFIG.privateKey)
-    .replace('{dns}', dns)
+    .replace('{private_key}', privateKey)
+    .replace('{dns}', formattedDns)
     .replace('{public_key}', publicKey)
     .replace('{endpoint}', endpoint)
-    .replace('{keepalive}', String(options.keepalive || DEFAULT_CONFIG.keepalive));
+    .replace('{keepalive}', String(keepalive));
 }

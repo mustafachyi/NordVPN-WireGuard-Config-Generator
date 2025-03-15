@@ -1,38 +1,33 @@
-# WireGuard Configuration API Documentation
+# WireGuard Configuration API
 
 ## Overview
-This API provides endpoints for generating WireGuard configurations for NordVPN servers. It includes server selection, configuration generation, and multiple output formats (plain text, downloadable files, and QR codes).
+API for generating WireGuard configurations for NordVPN servers, providing server selection, configuration generation, and multiple output formats.
 
 ## Base URL
 ```
 http://localhost:3000
 ```
 
-## Cache Behavior
-- Server list is cached for 4.5 minutes
-- Cache is updated in background after threshold
-- Uses ETags for client-side caching
-- Automatic retry mechanism (3 attempts) for failed cache updates
+## Caching
+- Server list: 4.5 minutes
+- Background updates
+- ETags support
+- Auto-retry (3 attempts)
 
-## API Endpoints
+## Endpoints
 
-### 1. Server List
-```http
-GET /api/servers
-```
-
-Returns available WireGuard servers grouped by country and city.
+### GET /api/servers
+Returns available WireGuard servers by location.
 
 **Headers:**
-- `If-None-Match`: (Optional) ETag for cache validation
-- `Accept-Encoding`: Supports Brotli compression
+- `If-None-Match`: ETag for caching
+- `Accept-Encoding`: Supports brotli
 
 **Response Headers:**
 - `ETag`: Cache validation token
-- `Content-Type`: application/json
 - `Cache-Control`: public, max-age=300
 
-**Success Response Format:**
+**Response:**
 ```json
 {
   "united_states": {
@@ -46,159 +41,97 @@ Returns available WireGuard servers grouped by country and city.
 }
 ```
 
-**Status Codes:**
-- 200: Success with data
-- 304: Not Modified (when ETag matches)
+### POST /api/key
+Generates WireGuard private key using NordVPN token.
 
-### 2. Private Key Generation
-```http
-POST /api/key
-```
-
-Generates WireGuard private key using NordVPN's API.
-
-**Request Body:**
+**Request:**
 ```json
 {
-  "token": "64_character_hex_string"
+  "token": "64_char_hex_token"  // Case-insensitive hex string
 }
 ```
 
-**Token Format:**
-- Length: 64 characters
-- Pattern: ^[a-f0-9]{64}$
-- Case-insensitive
-
-**Success Response:**
+**Response:**
 ```json
 {
-  "key": "base64_encoded_private_key"
+  "key": "44_char_base64_key"  // Base64 string ending with '='
 }
 ```
 
-**Error Response:**
-```json
-{
-  "error": "error_message"
-}
-```
-
-**Status Codes:**
-- 200: Success
+**Errors:**
 - 400: Invalid token format
 - 401: Invalid/unauthorized token
 - 503: NordVPN API unavailable
 
-### 3. Configuration View
-```http
-POST /api/config
-```
+### POST /api/config
+Generates WireGuard configuration.
 
-Returns WireGuard configuration as plain text.
-
-**Request Body:**
+**Request:**
 ```json
 {
   "country": "united_states",
   "city": "new_york",
   "name": "us8675_wireguard",
-  "privateKey": "base64_private_key=",
-  "dns": "103.86.96.100, 8.8.8.8",
-  "endpoint": "hostname",
-  "keepalive": 25
+  "privateKey": "optional_44_char_key",  // Base64 ending with '='
+  "dns": "optional_dns_ips",            // Single or comma-separated IPs
+  "endpoint": "hostname|station",       // Default: hostname
+  "keepalive": 15                      // Range: 15-120, Default: 25
 }
 ```
 
-**Field Requirements:**
-- `country`: Lowercase, underscored string
-- `city`: Lowercase, underscored string
-- `name`: Server name as returned by /api/servers
-- `privateKey`: (Optional) 44-char Base64 string ending with '='
-- `dns`: (Optional) Single or multiple IPv4 addresses separated by commas (e.g., "1.1.1.1, 8.8.8.8")
-- `endpoint`: (Optional) "hostname" or "station"
-- `keepalive`: (Optional) Number between 15-120
+**Response:** Plain text WireGuard config
 
-**DNS Format Examples:**
-- Single DNS: `"103.86.96.100"`
-- Multiple DNS: `"103.86.96.100, 8.8.8.8"`
-- Multiple DNS with custom spacing: `"103.86.96.100,  8.8.8.8,   1.1.1.1"`
+### POST /api/config/qr
+Returns configuration as QR code (WebP format).
 
-**Response:**
-- Content-Type: text/plain; charset=utf-8
-- Raw WireGuard configuration text
+**Request:** Same as `/api/config`  
+**Response:** WebP image
 
-### 4. Configuration Download
-```http
-POST /api/config/download
-```
+### POST /api/config/download
+Downloads configuration as .conf file.
 
-Returns configuration as downloadable .conf file.
-Same request body as /api/config.
-
-**Response Headers:**
-- Content-Type: application/x-wireguard-config
-- Content-Disposition: attachment; filename="servername.conf"
-- Cache-Control: private, no-cache, no-store, must-revalidate
-
-### 5. QR Code Generation
-```http
-POST /api/config/qr
-```
-
-Returns configuration as QR code image.
-Same request body as /api/config.
-
-**QR Specifications:**
-- Image Format: WebP (nearLossless)
-- Size: 200px
-- Margin: 1
-- Error Correction: Level L
-
-**Response Headers:**
-- Content-Type: image/webp
-- Content-Length: [size in bytes]
+**Request:** Same as `/api/config`  
+**Response:** Downloadable config file
 
 ## Configuration Format
 ```ini
 [Interface]
 PrivateKey=[44_char_base64_key]
 Address=10.5.0.2/16
-DNS=1.1.1.1, 8.8.8.8
+DNS=1.1.1.1, 8.8.8.8      # Default: 103.86.96.100
 
 [Peer]
 PublicKey=[server_public_key]
 AllowedIPs=0.0.0.0/0,::/0
 Endpoint=[hostname/station]:51820
-PersistentKeepalive=[keepalive_value]
+PersistentKeepalive=[15-120]          # Default: 25
 ```
 
-## Error Handling
+## Validation Rules
+- **Private Key**: 44-char Base64 string ending with '='
+- **DNS**: IPv4 addresses, comma-separated
+- **Token**: 64-char hex string (case-insensitive)
+- **Keepalive**: Number between 15-120
+- **Server Names**: Alphanumeric with underscores
 
-### Common Error Responses
-```json
-{
-  "error": "detailed_error_message"
-}
-```
-
-### Status Codes
+## Status Codes
 - 200: Success
-- 304: Not Modified (caching)
-- 400: Invalid request parameters
-- 401: Authentication failed
+- 304: Not Modified (cache)
+- 400: Invalid request
+- 401: Auth failed
 - 404: Server not found
 - 500: QR generation failed
-- 503: External service unavailable
+- 503: Service unavailable
 
-## Server Name Sanitization
-- Converted to lowercase
-- Special characters replaced with underscore
+## Server Names
+- Lowercase
+- Special chars to underscore
 - Multiple underscores collapsed
-- Leading/trailing underscores removed
-- Pattern: /[\/\\:*?"<>|#]/g → '_'
+- No leading/trailing underscores
+- Pattern: `/[\/\\:*?"<>|#]/g` → `_`
 
-## Rate Limiting & Caching
-- Server list cached for 4.5 minutes
-- Background updates to prevent stale data
-- ETags for client-side caching
-- Brotli compression for responses > 512 bytes
+## Performance
+- Brotli compression (>512 bytes)
+- ETags for caching
+- Background cache updates
+- Optimized response formats
