@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-size: 115%;
+}
+
+/* Hide scrollbar but keep functionality */
+body::-webkit-scrollbar,
+select::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+body,
+select {
+  -ms-overflow-style: none;
+}
+
+* {
+  scrollbar-width: none;
+}
