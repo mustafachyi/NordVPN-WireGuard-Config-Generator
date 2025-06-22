@@ -1,0 +1,15 @@
+{
+    "configurations": [
+        {
+            "name": "Containers: Node.js Launch",
+            "type": "docker",
+            "request": "launch",
+            "preLaunchTask": "docker-run: debug",
+            "platform": "node",
+            "node": {
+                "package": "${workspaceFolder}/web-version-V2/package.json",
+                "localRoot": "${workspaceFolder}/web-version-V2"
+            }
+        }
+    ]
+}
