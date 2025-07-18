@@ -155,11 +155,11 @@ class ServerCache {
   private createResponseCache(servers: GroupedServers): void {
     const simplified = Object.entries(servers).reduce((acc, [country, cities]) => {
       acc[country] = Object.entries(cities).reduce((cityAcc, [city, serverList]) => {
-        cityAcc[city] = serverList.map(({name, load}) => ({name, load}));
+        cityAcc[city] = serverList.map(({name, load, station}) => ({name, load, ip: station}));
         return cityAcc;
-      }, {} as Record<string, SimpleServer[]>);
+      }, {} as Record<string, Array<{name: string; load: number; ip: string}>>);
       return acc;
-    }, {} as Record<string, Record<string, SimpleServer[]>>);
+    }, {} as Record<string, Record<string, Array<{name: string; load: number; ip: string}>>>);
 
     this.responseCache = {
       data: JSON.stringify(simplified),

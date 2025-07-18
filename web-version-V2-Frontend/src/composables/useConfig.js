@@ -116,7 +116,6 @@ export function useConfig() {
 
       return null
     } catch (err) {
-      console.error('Failed to load config:', err)
       configSettings.value = { ...defaultConfig }
       return { 
         message: 'Config reset due to invalid format. Please reconfigure.',
@@ -142,7 +141,6 @@ export function useConfig() {
       configSettings.value = configToSave
       return { message: 'Configuration saved successfully', type: 'success' }
     } catch (err) {
-      console.error('Failed to save config:', err)
       throw new Error(err.message || 'Failed to save configuration')
     }
   }
@@ -164,7 +162,6 @@ export function useConfig() {
       
       return { message: 'Configuration downloaded', type: 'success' }
     } catch (err) {
-      console.error('Failed to download config:', err)
       throw new Error(err.message || 'Failed to download configuration')
     }
   }
@@ -177,7 +174,6 @@ export function useConfig() {
       await navigator.clipboard.writeText(config)
       return { message: 'Configuration copied to clipboard', type: 'success' }
     } catch (err) {
-      console.error('Failed to copy config:', err)
       throw new Error(err.message || 'Failed to copy configuration')
     }
   }

@@ -14,7 +14,8 @@ const ERROR_MESSAGES = {
   INVALID_TOKEN: 'Invalid token format. Must be 64 hexadecimal characters.',
   INVALID_TOKEN_API: 'Invalid token. The token you provided is not valid.',
   CONNECTION: 'Failed to connect to the server. Please try again.',
-  EMPTY_TOKEN: 'Please enter a token'
+  EMPTY_TOKEN: 'Please enter a token',
+  INVALID_KEY: 'Invalid key received from server'
 }
 
 // Core state

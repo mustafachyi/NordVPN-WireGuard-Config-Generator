@@ -18,7 +18,7 @@ class SecureStorageService {
 
   #lazyInit() {
     if (!this.#initPromise) {
-      this.#initPromise = this.#init().catch(console.error)
+      this.#initPromise = this.#init()
     }
     return this.#initPromise
   }

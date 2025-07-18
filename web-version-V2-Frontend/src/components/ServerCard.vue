@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { icons } from '../utils/icons'
+import { useToast } from '../composables/useToast'
 
 // Constants
 const LOAD_THRESHOLDS = [
@@ -21,6 +22,8 @@ const props = defineProps({
   name: { type: String, required: true },
   country: { type: String, required: true },
   city: { type: String, required: true },
+  ip: { type: String, required: false },
+  showIp: { type: Boolean, default: false },
   load: { 
     type: Number, 
     required: true,
@@ -28,13 +31,40 @@ const props = defineProps({
   }
 })
 
-defineEmits(['generate-key', 'download-config', 'copy-config', 'show-qr'])
+const { show } = useToast()
+const emit = defineEmits(['generate-key', 'download-config', 'copy-config', 'show-qr', 'copy-ip'])
 
 // Computed
 const loadStyle = computed(() => {
   const style = LOAD_THRESHOLDS.find(({ threshold }) => props.load <= threshold)?.style
   return style ?? 'bg-nord-load-critical-bg text-nord-load-critical-text'
 })
+
+// Methods
+const copyToClipboard = (text) => {
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+const copyIp = () => {
+  if (copyToClipboard(props.ip)) {
+    show(`IP ${props.ip} copied to clipboard`, 'success')
+    emit('copy-ip', props.ip)
+  } else {
+    show('Failed to copy IP address', 'error')
+  }
+}
 </script>
 
 <template>
@@ -47,6 +77,15 @@ const loadStyle = computed(() => {
       <div class="min-w-0">
         <h3 class="font-medium text-nord-text-primary truncate">{{ name }}</h3>
         <p class="text-sm text-nord-text-secondary truncate">{{ country }} - {{ city }}</p>
+        <button
+          v-if="showIp && ip"
+          type="button"
+          class="text-sm font-medium text-nord-text-secondary/50 truncate px-0 py-0 focus:outline-none hover:text-nord-text-primary transition-colors"
+          @click="copyIp"
+          aria-label="Copy server IP"
+        >
+          {{ ip }}
+        </button>
       </div>
 
       <!-- Actions -->

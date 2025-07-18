@@ -88,7 +88,6 @@ export function useServers() {
       const multiplier = sortOrder.value === 'asc' ? 1 : -1
       return servers.sort((a, b) => compare(a, b) * multiplier)
     } catch (err) {
-      console.error('Error sorting servers:', err)
       return []
     }
   })
@@ -131,7 +130,6 @@ export function useServers() {
       
       updateVisibleServers()
     } catch (err) {
-      console.error('Failed to load servers:', err)
       throw err
     } finally {
       isLoading.value = false

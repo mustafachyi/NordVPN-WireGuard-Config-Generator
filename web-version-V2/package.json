@@ -23,6 +23,7 @@
     "sharp": "^0.33.5"
   },
   "trustedDependencies": [
-    "@mongodb-js/zstd"
+    "@mongodb-js/zstd",
+    "sharp"
   ]
 }

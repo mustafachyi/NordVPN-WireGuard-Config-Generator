@@ -41,6 +41,7 @@ const {
 const {
   isPanelOpen,
   showScrollTop,
+  showServerIp,
   showCustomizer,
   showKeyGenerator,
   showQrCode,
@@ -221,6 +222,25 @@ onUnmounted(() => {
               <span>Generate Key</span>
             </div>
           </button>
+          
+          <div class="mt-4">
+            <label class="flex items-center justify-between cursor-pointer group">
+              <span class="text-sm font-medium text-nord-text-primary">Show Server IP</span>
+              <button
+                type="button"
+                @click="showServerIp = !showServerIp"
+                class="relative w-10 h-5 rounded-full transition-colors focus:outline-none"
+                :class="showServerIp ? 'bg-nord-button-primary hover:bg-nord-button-primary-hover' : 'bg-nord-button-secondary hover:bg-nord-button-secondary-hover'"
+                aria-pressed="showServerIp"
+                aria-label="Toggle server IP display"
+              >
+                <span
+                  class="absolute left-0 top-0 w-4 h-4 rounded-full bg-white transition-transform mt-0.5"
+                  :class="showServerIp ? 'translate-x-5' : 'translate-x-0.5'"
+                ></span>
+              </button>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -254,12 +274,15 @@ onUnmounted(() => {
             name: server.displayName, 
             country: server.displayCountry, 
             city: server.displayCity, 
+            ip: server.ip,
+            showIp: showServerIp,
             load: server.load 
           }" 
           @generate-key="handleGenerateKey(server)" 
           @download-config="handleConfig('download', { server })" 
           @copy-config="handleConfig('copy', { server })" 
           @show-qr="handleShowQR(server, () => apiService.generateQR(prepareConfig(server, configSettings)))" 
+          @copy-ip="() => showToast('IP copied', 'success')"
         />
       </div>
       <div v-if="isLoading" class="flex justify-center py-4">

@@ -1,4 +1,4 @@
-import { ref, toRefs } from 'vue'
+import { ref, toRefs, watch } from 'vue'
 
 // Constants
 const PANEL_DEBOUNCE = 200
@@ -15,10 +15,12 @@ const MODALS = {
  */
 export function useUI() {
   // State
+  const persisted = localStorage.getItem('showServerIp')
   const state = ref({
     isPanelOpen: false,
     isDebouncing: false,
     showScrollTop: false,
+    showServerIp: persisted === 'true',
     [MODALS.CUSTOMIZER]: false,
     [MODALS.KEY_GENERATOR]: false,
     [MODALS.QR_CODE]: false,
@@ -30,12 +32,17 @@ export function useUI() {
     isPanelOpen,
     isDebouncing,
     showScrollTop,
+    showServerIp,
     showCustomizer,
     showKeyGenerator,
     showQrCode,
     qrCodeUrl,
     selectedServer
   } = toRefs(state.value)
+
+  watch(showServerIp, v => {
+    localStorage.setItem('showServerIp', v ? 'true' : 'false')
+  })
 
   // Panel controls
   const closePanel = () => isPanelOpen.value && (isPanelOpen.value = false)
@@ -88,6 +95,7 @@ export function useUI() {
     // State
     isPanelOpen,
     showScrollTop,
+    showServerIp,
     showCustomizer,
     showKeyGenerator,
     showQrCode,
