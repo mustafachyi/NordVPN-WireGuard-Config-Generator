@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nord-config-generator"
+version = "1.0.1"
+authors = [
+  { name="Ahmed Touhami", email="mustafachyi272@gmail.com" },
+]
+description = "A command-line tool for generating optimized NordVPN WireGuard configurations."
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Topic :: System :: Networking",
+    "Environment :: Console",
+]
+dependencies = [
+    "aiohttp>=3.12.14, <4.0",
+    "aiofiles>=24.1.0, <25.0",
+    "rich>=14.0.0, <15.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/mustafachyi/NordVPN-WireGuard-Config-Generator"
+"Bug Tracker" = "https://github.com/mustafachyi/NordVPN-WireGuard-Config-Generator/issues"
+
+[project.scripts]
+nordgen = "nord_config_generator.main:cli_entry_point"

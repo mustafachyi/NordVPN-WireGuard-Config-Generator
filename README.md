@@ -1,62 +1,72 @@
-# NordVPN WireGuard Config Generator & Proxy Fetcher  
+# NordVPN WireGuard Configuration Generator
 
-This tool makes it simple to create WireGuard configs for NordVPN and fetch proxy servers from the NordVPN API. Choose from Python, Go, Rust, Node.js, Ruby, or a web app version.  
+A command-line tool for generating optimized NordVPN WireGuard configurations.
 
-## Features  
+## Project Philosophy: A Focus on Quality
 
-- Automatically picks the best servers for speed and performance.  
-- Organizes servers by location (country, city).  
-- Finds nearby servers for faster connections.  
-- Connects to less crowded servers.  
-- Fetches proxy servers with ease.  
-- Simple management of configuration files.  
-- Multi-language support: Python, Go, Rust, Node.js, Ruby, and web.  
-- Secure key setup using `get-key.py`.  
+This project has been fundamentally refocused. Previously, multiple versions existed across several programming languages. This approach divided development effort and resulted in inconsistent quality.
 
-## How to Use  
+The new directive is singular: to provide one exceptionally engineered tool that is robust, maintainable, and correct.
 
-### General Steps  
-1. Get your NordVPN access token.  
-2. Choose a version: Python, Go, Rust, Node.js, Ruby, or Web.  
-3. Follow the instructions below for your chosen version.  
+To this end, all previous language implementations have been archived. Development is now concentrated on two platforms:
 
-### Python  
-1. Clone the repo and run `main.py`.  
-2. Enter your access token and follow the prompts.  
-3. Use `proxy_fetcher.py` to get proxy servers.  
-4. (Optional) Use `get-key.py` for secure private key setup.  
+1.  **This Command-Line Tool:** A complete rewrite in Python, packaged for professional use.
+2.  **A Web Interface:** For users who require a graphical frontend.
 
-### Go (fastest mybe ?)  
-1. Install Go, clone the repo, and compile or use pre-built files.
-2. Run `go tidy` to organize dependencies.
-3. Use `go run main.go` to execute.  
+This consolidated effort ensures a higher standard of quality and a more reliable end-product.
 
-### Rust  
-1. Install Rust, clone the repo, and compile or use pre-built files.  
-2. Run the tool and follow the prompts.  
+## Core Capabilities
 
-### Node.js  
-1. Install Node.js, clone the repo, and install dependencies `npm install`.  
-2. Run the tool `npm start` and follow the prompts.  
+*   **Package Distribution:** The tool is a proper command-line application, installable via PyPI. This eliminates manual dependency management.
+*   **Performance:** Asynchronous architecture processes the entire NordVPN server list in seconds.
+*   **Optimization:** Intelligently sorts servers by current load and geographic proximity to the user, generating configurations for the most performant connections.
+*   **Structured Output:** Automatically creates a clean directory structure containing standard configurations, a `best_configs` folder for optimal servers per location, and a `servers.json` file with detailed metadata for analysis.
+*   **Interactive and Non-Interactive:** A guided rich-CLI for interactive use. The core logic is structured to be scriptable.
 
-### Ruby  
-1. Install Ruby, clone the repo, and install dependencies `bundle install`.  
-2. Run the script `ruby main.rb` and follow the prompts.  
+## Installation
 
-### Web  
-1. Visit [nord-configs-crafter](https://wg-nord.pages.dev/) or the remake at [nord-configs](https://nord-configs.onrender.com/). 
-2. Follow the steps to generate configs.
-3. Enjoy !
+Prerequisites: Python 3.9+
 
-## Contributing  
-Want to help? Open issues or submit pull requests on GitHub.  
+Install the package using `pip`:
 
-## License  
-This project uses the GNU License. See the LICENSE file for details.  
+```bash
+pip install nord-config-generator
+```
 
-## Support  
-- **Star on GitHub**: Show your support by starring this project.  
-- **Subscribe to NordVPN**: Use [this referral link](https://ref.nordvpn.com/MXIVDoJGpKT) to get your NordVPN subscription. You'll receive 1-3 extra months for free, and you'll support the project at no extra cost.
-- **Join Us!**: Interested in discussing this project, sharing suggestions, addressing issues, or brainstorming future ideas? Connect with us on [Telegram](https://t.me/+GpyxZJi2wEYxNTI0).
+## Usage
 
-Enjoy a faster, simpler NordVPN setup with this tool!  
+### Generate Configurations (Default Action)
+
+Execute the application without any arguments. This is the primary function.
+
+```bash
+nordgen
+```
+
+The application will prompt for the required access token and configuration preferences.
+
+### Retrieve Private Key
+
+To retrieve and display your NordLynx private key without generating configurations, use the `get-key` command:
+
+```bash
+nordgen get-key
+```
+
+## Web Version
+
+A graphical alternative is available for direct use in a web browser.
+
+*   **Current Version:** [https://nord-configs.selfhoster.nl/](https://nord-configs.selfhoster.nl/)
+*   **Legacy Version:** [https://wg-nord.pages.dev/](https://wg-nord.pages.dev/)
+
+## Support
+
+Project visibility and continued development are supported by two actions:
+
+1.  **Star the Repository:** Starring the project on GitHub increases its visibility.
+2.  **NordVPN Referral:** Using the referral link for new subscriptions provides support at no additional cost. Link: [https://ref.nordvpn.com/MXIVDoJGpKT](https://ref.nordvpn.com/MXIVDoJGpKT)
+
+## License
+
+This project is distributed under the GNU General Public License v3.0. See the `LICENSE` file for full details.
