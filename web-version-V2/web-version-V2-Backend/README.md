@@ -1,67 +1,60 @@
-# Nord VPN Config Generator Backend
+# NordVPN WireGuard Configuration Backend
 
-A Bun-based backend service for generating WireGuard configurations for NordVPN.
+This project provides a high-performance backend service, built with Bun and Hono, for generating NordVPN WireGuard configurations.
+
+## Features
+
+-   **Dynamic Server List**: Fetches and caches the latest server list from the NordVPN API.
+-   **Key Generation**: Securely exchanges a NordVPN token for a WireGuard private key.
+-   **Configuration Generation**: Creates customized WireGuard `.conf` files.
+-   **Multiple Output Formats**: Delivers configurations as plain text, a downloadable file, or a QR code image.
+-   **High Performance**: Utilizes Bun's speed, brotli compression, and efficient caching with background updates.
 
 ## Installation
+
+Ensure you have [Bun](https://bun.sh/) installed.
 
 ```bash
 bun install
 ```
 
-## Development
+## Usage
+
+### Development
+
+To run the server in development mode with live-reloading:
 
 ```bash
-# Start the server in development mode with auto-reload
 bun run dev
+```
 
-# Start the server in production mode
+### Production
+
+To build and run the server for production:
+
+```bash
 bun start
 ```
 
+The server will be available at `http://localhost:3000`.
+
 ## Testing
 
-The project uses Bun's built-in test runner with comprehensive test coverage.
+The project includes a comprehensive test suite using Bun's built-in test runner.
 
-### Available Test Commands
+### Running Tests
 
 ```bash
-# Run all tests
+# Run the full test suite once
 bun test
 
-# Run tests in watch mode (auto-rerun on file changes)
+# Run tests in watch mode
 bun test:watch
 
-# Run tests with coverage report
+# Generate a test coverage report
 bun test:coverage
 ```
 
-### Test Structure
+## API
 
-Tests are organized following the project structure:
-- Unit tests are placed next to the files they test
-- Test files follow the naming pattern: `*.test.ts`
-- Tests are grouped by functionality using describe blocks
-
-### Writing Tests
-
-Example of a test file:
-```typescript
-import { describe, expect, test } from "bun:test";
-
-describe("Feature", () => {
-  test("should work as expected", () => {
-    // Test implementation
-  });
-});
-```
-
-### Test Coverage
-
-Coverage reports are generated in the `coverage` directory when running `bun test:coverage`. The configuration ensures:
-- All source files are included
-- Test files are excluded from coverage
-- Declaration files are excluded
-
-## API Documentation
-
-See [API.md](API.md) for detailed API documentation.
+For detailed endpoint specifications, request/response formats, and validation rules, see the official [API Documentation](API.md).

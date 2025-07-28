@@ -1,8 +1,3 @@
-/**
- * Utility functions for the application
- */
-
-// Regex patterns
 const PATTERNS = {
   WORD_NUMBER: /^([a-z]+)(\d+)?$/i,
   SERVER_NAME: /[\/\\:*?"<>|#]/g,
@@ -14,7 +9,6 @@ const PATTERNS = {
   NON_HEX: /[^a-f0-9]/g
 }
 
-// Formatting
 export const formatDisplayName = str => {
   if (!str) return ''
   return str.split('_').map(part => {
@@ -28,7 +22,6 @@ export const sanitizeServerName = str => str.toLowerCase()
   .replace(PATTERNS.MULTIPLE_UNDERSCORES, '_')
   .replace(PATTERNS.EDGE_UNDERSCORES, '')
 
-// Performance
 export const debounce = (fn, wait) => {
   let timeout
   return (...args) => {
@@ -37,7 +30,6 @@ export const debounce = (fn, wait) => {
   }
 }
 
-// Validation rules
 export const VALIDATION = {
   PRIVATE_KEY: {
     REGEX: PATTERNS.PRIVATE_KEY,
@@ -46,13 +38,12 @@ export const VALIDATION = {
   },
 
   DNS: {
-    IPV4_REGEX: PATTERNS.IPV4,
     ERROR: 'Invalid IPv4 address',
     validate: dns => {
       if (!dns) return true
       return dns.split(',').every(ip => {
         const trimmedIP = ip.trim()
-        return PATTERNS.IPV4.test(trimmedIP) && 
+        return PATTERNS.IPV4.test(trimmedIP) &&
                trimmedIP.split('.').every(num => {
                  const value = parseInt(num)
                  return value >= 0 && value <= 255
@@ -74,11 +65,11 @@ export const VALIDATION = {
 
   TOKEN: {
     REGEX: PATTERNS.TOKEN,
-    ERROR: 'Token must contain only hexadecimal characters (0-9, a-f) and be 64 characters long',
+    ERROR: 'Token must be 64 hexadecimal characters.',
     validate: token => !token || PATTERNS.TOKEN.test(token),
     sanitize: input => {
       if (!input) return ''
       return input.toLowerCase().replace(PATTERNS.NON_HEX, '').slice(0, 64)
     }
   }
-} 
+}

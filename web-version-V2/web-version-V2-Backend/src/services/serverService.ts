@@ -1,261 +1,156 @@
 import { Logger } from '../utils/logger';
-import type { Context } from 'hono';
 
-// Types
-interface ServerResponse {
-  name: string;
-  station: string;
-  hostname: string;
-  load: number;
-  locations: {
-    country: {
-      name: string;
-      city: { name: string };
-    };
-  }[];
-  technologies: {
-    metadata: {
-      name: string;
-      value: string;
-    }[];
-  }[];
+interface RawNordVpnServer {
+    name: string;
+    station: string;
+    hostname: string;
+    load: number;
+    locations: { country: { name: string; city: { name: string } } }[];
+    technologies: { metadata: { name: string; value: string }[] }[];
 }
 
 export interface ProcessedServer {
-  name: string;
-  station: string;
-  hostname: string;
-  load: number;
-  keyId: number;
+    name: string;
+    station: string;
+    hostname: string;
+    load: number;
+    keyId: number;
 }
 
-export interface SimpleServer {
-  name: string;
-  load: number;
+export interface SimplifiedServer {
+    name: string;
+    load: number;
+    ip: string;
 }
 
 export interface GroupedServers {
-  [country: string]: {
-    [city: string]: ProcessedServer[];
-  };
+    [country: string]: { [city:string]: ProcessedServer[] };
 }
 
-interface CachedResponse {
-  data: string;
-  etag: string;
+export interface SimplifiedGroupedServers {
+    [country: string]: { [city: string]: SimplifiedServer[] };
 }
 
-// Constants
-const CACHE_CONFIG = {
-  UPDATE_THRESHOLD: 4.5 * 60 * 1000,
-  MAX_RETRIES: 3,
-  RETRY_DELAY: 1000,
-  CONTEXT: 'ServerCache'
-} as const;
+const CACHE_LIFESPAN_MS = 4.5 * 60 * 1000;
+const API_RETRY_ATTEMPTS = 3;
+const API_RETRY_DELAY_MS = 1000;
+const NORDVPN_SERVERS_URL = 'https://api.nordvpn.com/v1/servers?limit=16384&filters[servers_technologies][identifier]=wireguard_udp';
+const LOG_CONTEXT = 'ServerCache';
 
-const API_URL = 'https://api.nordvpn.com/v1/servers?limit=8000&filters[servers_technologies][identifier]=wireguard_udp';
+class ServerCacheManager {
+    private mainCache: GroupedServers | null = null;
+    private publicKeyMap = new Map<number, string>();
+    private nextKeyId = 1;
+    private lastUpdateTime = 0;
+    private isUpdating = false;
+    private updateTimer: Timer | null = null;
 
-// Helper functions
-const sanitizeName = (name: string): string => 
-  name.toLowerCase()
-    .replace(/[\/\\:*?"<>|#-]/g, '_')
-    .split(' ')
-    .filter(Boolean)
-    .join('_')
-    .replace(/_+/g, '_')
-    .replace(/^_|_$/g, '');
+    private static sanitizeName(name: string): string {
+        return name.toLowerCase().replace(/[\s\/\\:*?"<>|#]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+    }
 
-const delay = (ms: number): Promise<void> => 
-  new Promise(resolve => setTimeout(resolve, ms));
-
-class ServerCache {
-  private mainCache: GroupedServers | null = null;
-  private responseCache: CachedResponse | null = null;
-  private lastUpdate = 0;
-  private isUpdating = false;
-  private keyMap = new Map<string, number>();
-  private nextKeyId = 1;
-
-  private async fetchFreshData(): Promise<GroupedServers> {
-    let attempt = 0;
-
-    while (attempt < CACHE_CONFIG.MAX_RETRIES) {
-      try {
-        Logger.info(CACHE_CONFIG.CONTEXT, `Fetching fresh server data (Attempt ${attempt + 1})`);
-        const response = await fetch(API_URL);
-        
-        if (!response.ok) throw new Error(`API responded with status ${response.status}`);
-        
-        const data: ServerResponse[] = await response.json();
-        Logger.info(CACHE_CONFIG.CONTEXT, `Successfully fetched ${data.length} servers`);
-        
-        const groupedServers = await this.processServerData(data);
-        this.createResponseCache(groupedServers);
-        return groupedServers;
-
-      } catch (error) {
-        attempt++;
-        Logger.error(CACHE_CONFIG.CONTEXT, `Attempt ${attempt} failed`, error);
-        
-        if (attempt < CACHE_CONFIG.MAX_RETRIES) {
-          Logger.info(CACHE_CONFIG.CONTEXT, `Retrying in ${CACHE_CONFIG.RETRY_DELAY}ms...`);
-          await delay(CACHE_CONFIG.RETRY_DELAY);
-        } else {
-          Logger.error(CACHE_CONFIG.CONTEXT, 'All retry attempts failed');
-          throw error;
+    private async fetchAndProcessData(): Promise<GroupedServers> {
+        for (let i = 0; i < API_RETRY_ATTEMPTS; i++) {
+            try {
+                const response = await fetch(NORDVPN_SERVERS_URL);
+                if (!response.ok) {
+                    throw new Error(`API error status: ${response.status}`);
+                }
+                const rawData = (await response.json()) as RawNordVpnServer[];
+                return this.transformRawData(rawData);
+            } catch (error) {
+                Logger.warn(LOG_CONTEXT, `Fetch attempt ${i + 1} failed. Retrying...`);
+                if (i < API_RETRY_ATTEMPTS - 1) {
+                    await new Promise(resolve => setTimeout(resolve, API_RETRY_DELAY_MS));
+                } else {
+                    Logger.error(LOG_CONTEXT, 'All fetch attempts failed.', error);
+                    throw error;
+                }
+            }
         }
-      }
+        return {};
     }
 
-    return {};
-  }
+    private transformRawData(rawData: RawNordVpnServer[]): GroupedServers {
+        const grouped: GroupedServers = {};
+        const keyLookup = new Map<string, number>();
 
-  private async processServerData(data: ServerResponse[]): Promise<GroupedServers> {
-    const groupedServers: GroupedServers = {};
+        for (const server of rawData) {
+            const location = server.locations[0];
+            const publicKey = server.technologies.flatMap(t => t.metadata).find(m => m.name === 'public_key')?.value;
+            if (!location || !publicKey) continue;
+
+            const country = ServerCacheManager.sanitizeName(location.country.name);
+            const city = ServerCacheManager.sanitizeName(location.country.city.name);
+
+            let keyId = keyLookup.get(publicKey);
+            if (keyId === undefined) {
+                keyId = this.nextKeyId++;
+                keyLookup.set(publicKey, keyId);
+                this.publicKeyMap.set(keyId, publicKey);
+            }
+
+            (grouped[country] ||= {})[city] ||= [];
+            grouped[country][city].push({
+                name: ServerCacheManager.sanitizeName(server.name),
+                station: server.station,
+                hostname: server.hostname,
+                load: server.load,
+                keyId,
+            });
+        }
+        return grouped;
+    }
+
+    private async performUpdate(): Promise<void> {
+        if (this.isUpdating) return;
+        this.isUpdating = true;
+        Logger.info(LOG_CONTEXT, 'Starting background cache update.');
+        try {
+            const freshData = await this.fetchAndProcessData();
+            this.mainCache = freshData;
+            this.lastUpdateTime = Date.now();
+            Logger.info(LOG_CONTEXT, 'Cache update completed successfully.');
+        } catch (error) {
+            Logger.error(LOG_CONTEXT, 'Background cache update failed.', error);
+        } finally {
+            this.isUpdating = false;
+        }
+    }
+
+    public async initialize(): Promise<void> {
+        await this.performUpdate();
+        if (this.updateTimer) clearInterval(this.updateTimer);
+        this.updateTimer = setInterval(() => this.performUpdate(), CACHE_LIFESPAN_MS);
+    }
+
+    public async getData(): Promise<GroupedServers> {
+        if (!this.mainCache) {
+            await this.initialize();
+        } else if (Date.now() - this.lastUpdateTime > CACHE_LIFESPAN_MS) {
+            this.performUpdate();
+        }
+        return this.mainCache ?? {};
+    }
+
+    public async getSimplifiedData(): Promise<SimplifiedGroupedServers> {
+        const data = await this.getData();
+        return Object.fromEntries(
+            Object.entries(data).map(([country, cities]) => [
+                country,
+                Object.fromEntries(
+                    Object.entries(cities).map(([city, servers]) => [
+                        city,
+                        servers.map(s => ({ name: s.name, load: s.load, ip: s.station })),
+                    ])
+                ),
+            ])
+        );
+    }
     
-    for (const server of data) {
-      const location = server.locations?.[0];
-      if (!location) continue;
-
-      const country = sanitizeName(location.country?.name || 'unknown');
-      const city = sanitizeName(location.country?.city?.name || 'unknown');
-      
-      if (!groupedServers[country]) groupedServers[country] = {};
-      if (!groupedServers[country][city]) groupedServers[country][city] = [];
-
-      const publicKey = server.technologies
-        ?.find(tech => tech.metadata?.some(meta => meta.name === 'public_key'))
-        ?.metadata?.find(meta => meta.name === 'public_key')?.value;
-
-      if (!publicKey) continue;
-
-      let keyId = this.keyMap.get(publicKey);
-      if (!keyId) {
-        keyId = this.nextKeyId++;
-        this.keyMap.set(publicKey, keyId);
-      }
-
-      groupedServers[country][city].push({
-        name: sanitizeName(server.name),
-        station: server.station,
-        hostname: server.hostname,
-        load: server.load,
-        keyId
-      });
-    }
-
-    return Object.keys(groupedServers)
-      .sort()
-      .reduce((acc, country) => {
-        acc[country] = groupedServers[country];
-        return acc;
-      }, {} as GroupedServers);
-  }
-
-  private createResponseCache(servers: GroupedServers): void {
-    const simplified = Object.entries(servers).reduce((acc, [country, cities]) => {
-      acc[country] = Object.entries(cities).reduce((cityAcc, [city, serverList]) => {
-        cityAcc[city] = serverList.map(({name, load, station}) => ({name, load, ip: station}));
-        return cityAcc;
-      }, {} as Record<string, Array<{name: string; load: number; ip: string}>>);
-      return acc;
-    }, {} as Record<string, Record<string, Array<{name: string; load: number; ip: string}>>>);
-
-    this.responseCache = {
-      data: JSON.stringify(simplified),
-      etag: `"${Date.now().toString(36)}"`
-    };
-  }
-
-  private async backgroundUpdate(): Promise<void> {
-    if (this.isUpdating) return;
-    
-    try {
-      this.isUpdating = true;
-      Logger.clear();
-      const updateCount = Logger.incrementCacheUpdate();
-      Logger.info(CACHE_CONFIG.CONTEXT, `Cache update #${updateCount} started`);
-      
-      this.mainCache = await this.fetchFreshData();
-      this.lastUpdate = Date.now();
-      
-      Logger.info(CACHE_CONFIG.CONTEXT, `Cache update #${updateCount} completed`);
-    } catch (error) {
-      Logger.error(CACHE_CONFIG.CONTEXT, 'Cache update failed', error);
-    } finally {
-      this.isUpdating = false;
-    }
-  }
-
-  public async initialize(): Promise<void> {
-    try {
-      Logger.clear();
-      const updateCount = Logger.incrementCacheUpdate();
-      Logger.info(CACHE_CONFIG.CONTEXT, `Initial cache population #${updateCount}`);
-      
-      this.mainCache = await this.fetchFreshData();
-      this.lastUpdate = Date.now();
-      
-      Logger.info(CACHE_CONFIG.CONTEXT, `Initial cache population completed`);
-      this.startPeriodicUpdate();
-    } catch (error) {
-      Logger.error(CACHE_CONFIG.CONTEXT, 'Failed to initialize cache', error);
-      throw error;
-    }
-  }
-
-  private startPeriodicUpdate(): void {
-    setInterval(() => {
-      if (!this.isUpdating && (Date.now() - this.lastUpdate) >= CACHE_CONFIG.UPDATE_THRESHOLD) {
-        this.backgroundUpdate().catch(() => {});
-      }
-    }, CACHE_CONFIG.UPDATE_THRESHOLD);
-  }
-
-  public async getData(): Promise<GroupedServers> {
-    if (!this.mainCache) return {};
-    
-    if ((Date.now() - this.lastUpdate) >= CACHE_CONFIG.UPDATE_THRESHOLD && !this.isUpdating) {
-      this.backgroundUpdate().catch(() => {});
-    }
-
-    return this.mainCache;
-  }
-
-  public getCachedResponse(): CachedResponse | null {
-    return this.responseCache;
-  }
-
-  public getPublicKeyById(keyId: number): string | undefined {
-    for (const [key, id] of this.keyMap.entries()) {
-      if (id === keyId) return key;
-    }
-    return undefined;
-  }
+    public getEtag(): string { return `W/"${this.lastUpdateTime.toString(36)}"` }
+    public getPublicKeyById(keyId: number): string | undefined { return this.publicKeyMap.get(keyId); }
 }
 
-export const serverCache = new ServerCache();
-
-export async function initializeCache(): Promise<void> {
-  await serverCache.initialize();
-}
-
-export async function fetchServers(): Promise<CachedResponse> {
-  try {
-    const cached = serverCache.getCachedResponse();
-    if (!cached) {
-      return {
-        data: '{}',
-        etag: `"${Date.now().toString(36)}"`
-      };
-    }
-    
-    serverCache.getData().catch(() => {});
-    return cached;
-  } catch {
-    return {
-      data: '{}',
-      etag: `"${Date.now().toString(36)}"`
-    };
-  }
-}
+export const serverCache = new ServerCacheManager();
+export const initializeCache = () => serverCache.initialize();

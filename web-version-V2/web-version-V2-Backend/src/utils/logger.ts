@@ -1,132 +1,59 @@
 export enum LogLevel {
-  DEBUG = 0,
-  INFO = 1,
-  WARN = 2,
-  ERROR = 3
+    INFO,
+    WARN,
+    ERROR,
 }
 
-// Core types
-interface LogEntry {
-  readonly timestamp: number;
-  readonly level: LogLevel;
-  readonly context: string;
-  readonly message: string;
-  readonly details?: unknown;
-}
+const LOG_LEVEL_MAP: Record<LogLevel, string> = {
+    [LogLevel.INFO]: 'INFO',
+    [LogLevel.WARN]: 'WARN',
+    [LogLevel.ERROR]: 'ERROR',
+};
 
-// Configuration
-const LOG_CONFIG = {
-  MAX_ENTRIES: 200,
-  CLEANUP_THRESHOLD: 150,
-  CLEANUP_TARGET: 100,
-  DEFAULT_LEVEL: LogLevel.INFO,
-  LEVEL_LABELS: ['DEBUG', 'INFO ', 'WARN ', 'ERROR'] as const,
-  TIMESTAMP_SLICE_END: -5
-} as const;
-
-/** Efficient logging system with automatic memory management */
 export class Logger {
-  private static readonly logs: LogEntry[] = [];
-  private static cacheUpdateCount = 0;
-  private static currentLevel: LogLevel = LOG_CONFIG.DEFAULT_LEVEL;
-  private static lastCleanup = Date.now();
-  
-  /** Formats current time as ISO string without milliseconds */
-  private static getTimeString(): string {
-    return new Date().toISOString()
-      .replace('T', ' ')
-      .slice(0, LOG_CONFIG.TIMESTAMP_SLICE_END);
-  }
+    private static currentLevel: LogLevel = LogLevel.INFO;
 
-  /** Creates formatted log line with metadata */
-  private static formatLogMessage(level: LogLevel, context: string, message: string): string {
-    return `[${this.getTimeString()}] [${LOG_CONFIG.LEVEL_LABELS[level]}] [${context}] ${message}`;
-  }
-
-  /** Cleans old entries if needed */
-  private static cleanupIfNeeded(): void {
-    const now = Date.now();
-    
-    // Only cleanup if threshold reached and not cleaned in last 5 seconds
-    if (this.logs.length > LOG_CONFIG.CLEANUP_THRESHOLD && 
-        now - this.lastCleanup > 5000) {
-      
-      this.lastCleanup = now;
-      this.logs.splice(0, this.logs.length - LOG_CONFIG.CLEANUP_TARGET);
-      global.gc?.();
+    private static formatMessage(
+        level: LogLevel,
+        context: string,
+        message: string
+    ): string {
+        const timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        const levelLabel = LOG_LEVEL_MAP[level].padEnd(5);
+        return `[${timestamp}] [${levelLabel}] [${context}] ${message}`;
     }
-  }
 
-  /** Processes new log entry with automatic cleanup */
-  private static addEntry(level: LogLevel, context: string, message: string, details?: unknown): void {
-    if (level < this.currentLevel) return;
+    private static log(
+        level: LogLevel,
+        context: string,
+        message: string,
+        details?: unknown
+    ): void {
+        if (level < this.currentLevel || process.env.NODE_ENV === 'test') return;
 
-    // Store immutable entry
-    const entry: LogEntry = Object.freeze({
-      timestamp: Date.now(),
-      level,
-      context,
-      message,
-      details
-    });
+        const formattedMessage = this.formatMessage(level, context, message);
+        const logMethod =
+            level === LogLevel.ERROR
+                ? console.error
+                : level === LogLevel.WARN
+                ? console.warn
+                : console.log;
 
-    this.logs.push(entry);
-    this.cleanupIfNeeded();
-
-    // Output to console
-    const formattedMessage = this.formatLogMessage(level, context, message);
-    switch (level) {
-      case LogLevel.ERROR:
-        console.error(formattedMessage);
+        logMethod(formattedMessage);
         if (details) {
-          const errorDetails = `[${this.getTimeString()}] [ERROR] [${context}] Details:`;
-          console.error(errorDetails, details);
+            logMethod(details);
         }
-        break;
-      case LogLevel.WARN:
-        console.warn(formattedMessage);
-        break;
-      default:
-        console.log(formattedMessage);
     }
-  }
 
-  // Public methods
-  static setLogLevel(level: LogLevel): void {
-    this.currentLevel = level;
-  }
+    static info(context: string, message: string): void {
+        this.log(LogLevel.INFO, context, message);
+    }
 
-  static debug(context: string, message: string): void {
-    this.addEntry(LogLevel.DEBUG, context, message);
-  }
+    static warn(context: string, message: string): void {
+        this.log(LogLevel.WARN, context, message);
+    }
 
-  static info(context: string, message: string): void {
-    this.addEntry(LogLevel.INFO, context, message);
-  }
-
-  static warn(context: string, message: string): void {
-    this.addEntry(LogLevel.WARN, context, message);
-  }
-
-  static error(context: string, message: string, error?: unknown): void {
-    this.addEntry(LogLevel.ERROR, context, message, error);
-  }
-
-  static clear(): void {
-    this.logs.length = 0;
-    console.clear();
-  }
-
-  static getRecentLogs(count = 100): ReadonlyArray<LogEntry> {
-    const startIndex = Math.max(0, this.logs.length - count);
-    return Object.freeze(this.logs.slice(startIndex));
-  }
-
-  static incrementCacheUpdate(): number {
-    return ++this.cacheUpdateCount;
-  }
-
-  static getCacheUpdateCount(): number {
-    return this.cacheUpdateCount;
-  }
+    static error(context: string, message: string, error?: unknown): void {
+        this.log(LogLevel.ERROR, context, message, error);
+    }
 }

@@ -1,137 +1,106 @@
 # WireGuard Configuration API
 
 ## Overview
-API for generating WireGuard configurations for NordVPN servers, providing server selection, configuration generation, and multiple output formats.
+
+This API provides services for generating NordVPN WireGuard configurations. It includes endpoints for server discovery, private key generation, and configuration output in multiple formats. The system is designed for high availability and performance, featuring intelligent caching and robust input validation.
 
 ## Base URL
-```
-http://localhost:3000
-```
 
-## Caching
-- Server list: 4.5 minutes
-- Background updates
-- ETags support
-- Auto-retry (3 attempts)
+`http://localhost:3000`
 
 ## Endpoints
 
-### GET /api/servers
-Returns available WireGuard servers by location.
+### `GET /api/servers`
 
-**Headers:**
-- `If-None-Match`: ETag for caching
-- `Accept-Encoding`: Supports brotli
+Retrieves the list of available WireGuard servers, grouped by country and city. This endpoint is cached for performance.
 
-**Response Headers:**
-- `ETag`: Cache validation token
-- `Cache-Control`: public, max-age=300
+-   **Headers**:
+    -   `If-None-Match`: (Optional) ETag for cache validation.
+-   **Successful Response (`200 OK`)**:
+    -   **Headers**:
+        -   `ETag`: The current ETag for the server list.
+        -   `Cache-Control`: `public, max-age=300`
+    -   **Body**: A JSON object mapping countries to cities, which contain server lists.
+-   **Not Modified Response (`304 Not Modified`)**:
+    -   Returned if the client's `If-None-Match` header matches the server's ETag.
 
-**Response:**
-```json
-{
-  "united_states": {
-    "new_york": [
-      {
-        "name": "us8675_wireguard",
-        "load": 45
-      }
-    ]
-  }
-}
-```
+### `POST /api/key`
 
-### POST /api/key
-Generates WireGuard private key using NordVPN token.
+Exchanges a valid 64-character hexadecimal NordVPN access token for a WireGuard private key.
 
-**Request:**
-```json
-{
-  "token": "64_char_hex_token"  // Case-insensitive hex string
-}
-```
+-   **Request Body**:
+    ```json
+    {
+      "token": "YOUR_64_CHARACTER_HEX_TOKEN"
+    }
+    ```
+-   **Successful Response (`200 OK`)**:
+    ```json
+    {
+      "key": "A_44_CHARACTER_BASE64_PRIVATE_KEY"
+    }
+    ```
 
-**Response:**
-```json
-{
-  "key": "44_char_base64_key"  // Base64 string ending with '='
-}
-```
+### `POST /api/config`
 
-**Errors:**
-- 400: Invalid token format
-- 401: Invalid/unauthorized token
-- 503: NordVPN API unavailable
+Generates a WireGuard configuration as plain text.
 
-### POST /api/config
-Generates WireGuard configuration.
+-   **Request Body**:
+    ```json
+    {
+      "country": "united_states",
+      "city": "new_york",
+      "name": "us8675_wireguard",
+      "privateKey": "(Optional) Your_44_char_base64_key=",
+      "dns": "(Optional) 1.1.1.1,8.8.8.8",
+      "endpoint": "(Optional) hostname | station",
+      "keepalive": "(Optional) 25"
+    }
+    ```
+-   **Successful Response (`200 OK`)**:
+    -   **Content-Type**: `text/plain; charset=utf-8`
+    -   **Body**: The WireGuard configuration text.
 
-**Request:**
-```json
-{
-  "country": "united_states",
-  "city": "new_york",
-  "name": "us8675_wireguard",
-  "privateKey": "optional_44_char_key",  // Base64 ending with '='
-  "dns": "optional_dns_ips",            // Single or comma-separated IPs
-  "endpoint": "hostname|station",       // Default: hostname
-  "keepalive": 15                      // Range: 15-120, Default: 25
-}
-```
+### `POST /api/config/download`
 
-**Response:** Plain text WireGuard config
+Generates a WireGuard configuration as a downloadable `.conf` file.
 
-### POST /api/config/qr
-Returns configuration as QR code (WebP format).
+-   **Request Body**: Same as `/api/config`.
+-   **Successful Response (`200 OK`)**:
+    -   **Content-Type**: `application/x-wireguard-config`
+    -   **Content-Disposition**: `attachment; filename="<server_name>.conf"`
+    -   **Body**: The WireGuard configuration file content.
 
-**Request:** Same as `/api/config`  
-**Response:** WebP image
+### `POST /api/config/qr`
 
-### POST /api/config/download
-Downloads configuration as .conf file.
+Generates a WireGuard configuration as a WebP QR code image.
 
-**Request:** Same as `/api/config`  
-**Response:** Downloadable config file
-
-## Configuration Format
-```ini
-[Interface]
-PrivateKey=[44_char_base64_key]
-Address=10.5.0.2/16
-DNS=1.1.1.1, 8.8.8.8      # Default: 103.86.96.100
-
-[Peer]
-PublicKey=[server_public_key]
-AllowedIPs=0.0.0.0/0,::/0
-Endpoint=[hostname/station]:51820
-PersistentKeepalive=[15-120]          # Default: 25
-```
+-   **Request Body**: Same as `/api/config`.
+-   **Successful Response (`200 OK`)**:
+    -   **Content-Type**: `image/webp`
+    -   **Body**: The WebP image data.
 
 ## Validation Rules
-- **Private Key**: 44-char Base64 string ending with '='
-- **DNS**: IPv4 addresses, comma-separated
-- **Token**: 64-char hex string (case-insensitive)
-- **Keepalive**: Number between 15-120
-- **Server Names**: Alphanumeric with underscores
+
+| Field        | Rule                                                               |
+| :----------- | :----------------------------------------------------------------- |
+| `token`      | Must be a 64-character hexadecimal string.                         |
+| `country`    | Required. Must be a valid, sanitized server location country.      |
+| `city`       | Required. Must be a valid, sanitized server location city.         |
+| `name`       | Required. Must be a valid, sanitized server name.                  |
+| `privateKey` | Optional. Must be a 44-character Base64 string ending with `=`.    |
+| `dns`        | Optional. Must be a comma-separated list of valid IPv4 addresses.  |
+| `endpoint`   | Optional. Must be either `"hostname"` or `"station"`.              |
+| `keepalive`  | Optional. Must be a number between `15` and `120`.                 |
 
 ## Status Codes
-- 200: Success
-- 304: Not Modified (cache)
-- 400: Invalid request
-- 401: Auth failed
-- 404: Server not found
-- 500: QR generation failed
-- 503: Service unavailable
 
-## Server Names
-- Lowercase
-- Special chars to underscore
-- Multiple underscores collapsed
-- No leading/trailing underscores
-- Pattern: `/[\/\\:*?"<>|#]/g` → `_`
-
-## Performance
-- Brotli compression (>512 bytes)
-- ETags for caching
-- Background cache updates
-- Optimized response formats
+| Code   | Meaning                 | Description                                                  |
+| :---   | :---------------------- | :----------------------------------------------------------- |
+| `200`  | OK                      | The request was successful.                                  |
+| `304`  | Not Modified            | The cached resource (`/api/servers`) is still valid.         |
+| `400`  | Bad Request             | The request body failed validation.                          |
+| `401`  | Unauthorized            | The provided `token` is invalid or expired.                  |
+| `404`  | Not Found               | The requested endpoint or server could not be found.         |
+| `500`  | Internal Server Error   | An unexpected server-side error occurred.                    |
+| `503`  | Service Unavailable     | The NordVPN API is currently unreachable.                    |

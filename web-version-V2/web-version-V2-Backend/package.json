@@ -18,12 +18,13 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "hono": "^4.5.3",
     "hono-compress": "^0.7.0",
+    "hono-rate-limiter": "^0.4.0",
     "qrcode": "^1.5.4",
     "sharp": "^0.33.5"
   },
   "trustedDependencies": [
-    "@mongodb-js/zstd",
     "sharp"
   ]
 }

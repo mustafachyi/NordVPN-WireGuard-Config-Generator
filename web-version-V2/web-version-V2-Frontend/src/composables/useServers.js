@@ -2,23 +2,14 @@ import { ref, computed, toRefs } from 'vue'
 import { apiService } from '../services/apiService'
 import { formatDisplayName } from '../utils/utils'
 
-// Constants
-const CHUNK_SIZE = 100
+const VISIBLE_SERVER_INCREMENT = 100
+
 const SORT_FUNCTIONS = {
   load: (a, b) => a.load - b.load,
-  country: (a, b) => a.displayCountry.localeCompare(b.displayCountry),
-  city: (a, b) => a.displayCity.localeCompare(b.displayCity),
   name: (a, b) => a.displayName.localeCompare(b.displayName)
 }
 
-/**
- * Creates a server object with formatted display properties
- * @param {Object} server - The server data
- * @param {string} country - The country name
- * @param {string} city - The city name
- * @returns {Object} Formatted server object
- */
-const formatServer = (server, country, city) => ({
+const createServerViewModel = (server, country, city) => ({
   ...server,
   country,
   city,
@@ -27,12 +18,7 @@ const formatServer = (server, country, city) => ({
   displayCity: formatDisplayName(city)
 })
 
-/**
- * Composable for managing server data and filtering
- * @returns {Object} Server state and methods
- */
 export function useServers() {
-  // Server State Management
   const state = ref({
     allServers: [],
     visibleServers: [],
@@ -43,67 +29,42 @@ export function useServers() {
     filterCity: ''
   })
 
-  const {
-    allServers,
-    visibleServers,
-    isLoading,
-    sortBy,
-    sortOrder,
-    filterCountry,
-    filterCity
-  } = toRefs(state.value)
+  const { allServers, visibleServers, isLoading, sortBy, sortOrder, filterCountry, filterCity } = toRefs(state.value)
 
-  // Lists
-  const getUniqueValues = (key) => computed(() => 
+  const getUniqueSortedValues = (key) => computed(() =>
     [...new Set(allServers.value.map(s => s[key]))].sort()
   )
 
-  const countries = getUniqueValues('country')
-  const cities = getUniqueValues('city')
-  const citiesForCountry = computed(() => 
-    filterCountry.value 
-      ? [...new Set(
-          allServers.value
-            .filter(s => s.country === filterCountry.value)
-            .map(s => s.city)
-        )].sort()
+  const countries = getUniqueSortedValues('country')
+
+  const citiesForCountry = computed(() =>
+    filterCountry.value
+      ? [...new Set(allServers.value.filter(s => s.country === filterCountry.value).map(s => s.city))].sort()
       : []
   )
 
-  // Filtering and sorting
-  const sortedServers = computed(() => {
-    try {
-      let servers = allServers.value
-
-      // Apply filters
-      if (filterCountry.value || filterCity.value) {
-        servers = servers.filter(s => 
-          (!filterCountry.value || s.country === filterCountry.value) &&
-          (!filterCity.value || s.city === filterCity.value)
-        )
-      }
-
-      // Apply sort
-      const compare = SORT_FUNCTIONS[sortBy.value] || SORT_FUNCTIONS.name
-      const multiplier = sortOrder.value === 'asc' ? 1 : -1
-      return servers.sort((a, b) => compare(a, b) * multiplier)
-    } catch (err) {
-      return []
-    }
+  const filteredAndSortedServers = computed(() => {
+    const servers = allServers.value.filter(s =>
+      (!filterCountry.value || s.country === filterCountry.value) &&
+      (!filterCity.value || s.city === filterCity.value)
+    )
+    const compareFunction = SORT_FUNCTIONS[sortBy.value] || SORT_FUNCTIONS.name
+    const sortMultiplier = sortOrder.value === 'asc' ? 1 : -1
+    return servers.sort((a, b) => compareFunction(a, b) * sortMultiplier)
   })
 
-  const filteredCount = computed(() => sortedServers.value.length)
+  const filteredCount = computed(() => filteredAndSortedServers.value.length)
 
-  // Methods
   const updateVisibleServers = () => {
-    visibleServers.value = sortedServers.value.slice(0, CHUNK_SIZE)
+    visibleServers.value = filteredAndSortedServers.value.slice(0, VISIBLE_SERVER_INCREMENT)
   }
 
   const loadMoreServers = () => {
-    if (!isLoading.value) {
-      const start = visibleServers.value.length
-      const chunk = sortedServers.value.slice(start, start + CHUNK_SIZE)
-      chunk.length && visibleServers.value.push(...chunk)
+    if (isLoading.value) return
+    const currentLength = visibleServers.value.length
+    const nextChunk = filteredAndSortedServers.value.slice(currentLength, currentLength + VISIBLE_SERVER_INCREMENT)
+    if (nextChunk.length > 0) {
+      visibleServers.value.push(...nextChunk)
     }
   }
 
@@ -117,17 +78,14 @@ export function useServers() {
   }
 
   const loadServers = async () => {
+    isLoading.value = true
     try {
-      isLoading.value = true
-      const data = await apiService.getServers()
-      
-      // Transform server data
-      allServers.value = Object.entries(data).flatMap(([country, cities]) => 
+      const serverData = await apiService.getServers()
+      allServers.value = Object.entries(serverData).flatMap(([country, cities]) =>
         Object.entries(cities).flatMap(([city, servers]) =>
-          servers.map(server => formatServer(server, country, city))
+          servers.map(server => createServerViewModel(server, country, city))
         )
       )
-      
       updateVisibleServers()
     } catch (err) {
       throw err
@@ -137,26 +95,18 @@ export function useServers() {
   }
 
   return {
-    // State
-    allServers,
     visibleServers,
     isLoading,
     sortBy,
     sortOrder,
     filterCountry,
     filterCity,
-    
-    // Computed
     countries,
-    cities,
     citiesForCountry,
-    sortedServers,
     filteredCount,
-    
-    // Methods
     updateVisibleServers,
     loadMoreServers,
     toggleSort,
     loadServers
   }
-} 
+}

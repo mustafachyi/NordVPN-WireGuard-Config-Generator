@@ -6,7 +6,6 @@
   font-size: 115%;
 }
 
-/* Hide scrollbar but keep functionality */
 body::-webkit-scrollbar,
 select::-webkit-scrollbar {
   width: 0;

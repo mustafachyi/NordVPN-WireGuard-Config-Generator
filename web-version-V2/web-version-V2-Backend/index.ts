@@ -1,137 +1,96 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { cors } from 'hono/cors';
 import { compress } from 'hono-compress';
 import { serveStatic } from 'hono/bun';
-import { existsSync } from 'fs';
-import { join } from 'path';
-import type { BunFile } from 'bun';
+import { rateLimiter } from 'hono-rate-limiter';
+import type { Server } from 'bun';
+import { createConfigHandler } from './src/endpoints/config.ts';
+import { handleKeyRequest } from './src/endpoints/key.ts';
+import { initializeCache, serverCache } from './src/services/serverService.ts';
+import { Logger } from './src/utils/logger.ts';
 
-import { handleKeyRequest } from './src/endpoints/key';
-import { 
-  handleConfigRequest, 
-  handleConfigQrRequest, 
-  handleConfigDownloadRequest 
-} from './src/endpoints/config';
-import { fetchServers, initializeCache } from './src/services/serverService';
-import { Logger } from './src/utils/logger';
-
-// MIME type definitions
-const MIME_TYPES: Record<string, string> = {
-  '.js': 'application/javascript',
-  '.mjs': 'application/javascript',
-  '.css': 'text/css',
-  '.html': 'text/html',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.webp': 'image/webp',
+type Env = {
+    Bindings: {
+        ip?: string;
+    };
 };
 
-const getMimeType = (path: string): string => 
-  MIME_TYPES[path.substring(path.lastIndexOf('.'))] || 'application/octet-stream';
+const app = new Hono<Env>();
 
-const createBrotliResponse = (file: BunFile, mimeType: string): Response => {
-  const response = new Response(file);
-  response.headers.set('Content-Encoding', 'br');
-  response.headers.set('Content-Type', mimeType);
-  response.headers.set('Vary', 'Accept-Encoding');
-  return response;
-};
-
-// Initialize server
-const initServer = async (): Promise<void> => {
-  try {
-    Logger.clear();
-    Logger.info('Server', 'Initializing cache before starting server');
-    await initializeCache();
-    Logger.info('Server', 'Cache initialized successfully');
-  } catch (error) {
-    Logger.error('Server', 'Failed to initialize cache, starting without initial cache', error);
-  }
-};
-
-// Create Hono app
-const app = new Hono();
-
-// Global middleware
-app.use('*', cors());
-app.use(compress({ encodings: ['br'], brotliLevel: 2, threshold: 512 }));
-
-// Static file handlers
-app.use('/assets/*', async (c, next) => {
-  const path = c.req.path;
-  const supportsBrotli = c.req.header('Accept-Encoding')?.includes('br');
-  
-  if (supportsBrotli) {
-    const brPath = join('./public', `${path}.br`);
-    if (existsSync(brPath)) {
-      return createBrotliResponse(Bun.file(brPath), getMimeType(path));
+const initializeCacheManager = async (): Promise<void> => {
+    try {
+        Logger.info('Server', 'Initializing server cache...');
+        await initializeCache();
+        Logger.info('Server', 'Cache initialized successfully.');
+    } catch (error) {
+        Logger.error('Server', 'Cache initialization failed.', error);
     }
-  }
-  
-  const response = await serveStatic({ root: './public' })(c, next);
-  if (response?.status === 200) {
-    response.headers.set('Content-Type', getMimeType(path));
-  }
-  return response;
+};
+
+const limiter = rateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  standardHeaders: 'draft-6',
+  keyGenerator: (c: Context<Env>) => {
+    const testKey = c.req.header('x-test-key');
+    if (testKey) {
+        return testKey;
+    }
+    return c.env.ip || 'default';
+  },
 });
 
-// Root and HTML handler
-app.use('/*', async (c, next) => {
-  const path = c.req.path;
-  const isIndex = path === '/' || path === '/index.html';
-  const supportsBrotli = c.req.header('Accept-Encoding')?.includes('br');
-  
-  if (isIndex && supportsBrotli && existsSync('./public/index.html.br')) {
-    return createBrotliResponse(Bun.file('./public/index.html.br'), 'text/html');
-  }
-  
-  const response = await serveStatic({ root: './public' })(c, next);
-  if (response?.status === 200) {
-    response.headers.set('Content-Type', getMimeType(path));
-  }
-  return response;
-});
+app.use('*', cors());
+app.use('*', compress());
+app.use('/api/*', limiter);
 
-// Cache control
-app.use('*', async (c, next) => {
-  await next();
-  if (c.res.status < 400) {
-    c.header('Cache-Control', 'public, max-age=300');
-    c.header('Vary', 'Accept-Encoding');
-  }
-});
-
-// API routes
-app.post('/api/key', handleKeyRequest);
-app.post('/api/config', handleConfigRequest);
-app.post('/api/config/qr', handleConfigQrRequest);
-app.post('/api/config/download', handleConfigDownloadRequest);
+app.get(
+    '*',
+    serveStatic({
+        root: './public',
+        rewriteRequestPath: (path) => (path === '/' ? '/index.html' : path),
+    })
+);
 
 app.get('/api/servers', async (c) => {
-  const cached = await fetchServers();
-  c.header('ETag', cached.etag);
-  
-  if (c.req.header('If-None-Match') === cached.etag) {
-    return new Response(null, { status: 304 });
-  }
-  
-  return new Response(cached.data, {
-    headers: { 'Content-Type': 'application/json' }
-  });
+    const etag = c.req.header('if-none-match');
+    const currentEtag = serverCache.getEtag();
+
+    if (etag === currentEtag) {
+        return c.body(null, 304);
+    }
+
+    const simplifiedData = await serverCache.getSimplifiedData();
+
+    c.header('ETag', currentEtag);
+    c.header('Cache-Control', 'public, max-age=300');
+    return c.json(simplifiedData);
 });
 
-// Error handling
-app.notFound((c) => c.json({ error: "Endpoint not found" }, 404));
+app.post('/api/key', handleKeyRequest);
+app.post('/api/config', createConfigHandler('text'));
+app.post('/api/config/download', createConfigHandler('download'));
+app.post('/api/config/qr', createConfigHandler('qr'));
 
-// Initialize and export
-await initServer();
+app.notFound((c) => c.json({ error: 'Endpoint not found' }, 404));
 
+app.onError((err, c) => {
+    Logger.error('UnhandledError', 'An unhandled error occurred', err);
+    return c.json({ error: 'Internal Server Error' }, 500);
+});
+
+if (process.env.NODE_ENV !== 'test') {
+    await initializeCacheManager();
+}
+
+export { app, initializeCacheManager };
 export default {
-  port: 3000,
-  fetch: app.fetch,
+    port: 3000,
+    fetch: (req: Request, server: Server) => {
+        const env: Env['Bindings'] = {
+            ip: server.requestIP(req)?.address,
+        };
+        return app.fetch(req, env);
+    },
 };

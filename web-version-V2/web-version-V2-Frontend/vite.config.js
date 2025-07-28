@@ -1,54 +1,34 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import compression from 'vite-plugin-compression2'
 
-// https://vite.dev/config/
-export default defineConfig({
-  plugins: [
-    vue(),
-    // Brotli compression with maximum compression
-    compression({
-      algorithm: 'brotliCompress',
-      ext: '.br',
-      compressionOptions: { level: 11 },
-      threshold: 512,
-      deleteOriginalAssets: false // Keep original files
-    })
-  ],
-  build: {
-    outDir: 'dist',
-    // Ensure assets are optimized
-    assetsInlineLimit: 4096,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          'vue-vendor': ['vue']
-        }
-      }
-    }
-  },
-  css: {
-    modules: {
-      generateScopedName: '[hash:base64:4]',
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+
+  return {
+    plugins: [
+      vue(),
+      compression({
+        algorithm: 'brotliCompress',
+        exclude: [/\.(br)$/, /\.(gz)$/],
+        deleteOriginalAssets: false,
+      }),
+    ],
+    build: {
+      outDir: 'dist',
+      assetsInlineLimit: 4096,
+      sourcemap: false,
+      minify: 'esbuild',
     },
-    postcss: './postcss.config.js',
-    devSourcemap: false,
-    extract: false,
-    inline: true,
-  },
-  optimizeDeps: {
-    include: ['vue'],
-    exclude: [],
-  },
-  esbuild: {
-    drop: ['console', 'debugger'],
-    pure: ['console.log', 'console.info', 'console.debug', 'console.trace'],
-    treeShaking: true,
-    minifyIdentifiers: true,
-    minifySyntax: true,
-    minifyWhitespace: true,
-    legalComments: 'none',
-    charset: 'utf8',
-    target: 'esnext',
-  },
+    esbuild: {
+      drop: env.PROD ? ['console', 'debugger'] : [],
+      pure: env.PROD ? ['console.log'] : [],
+      treeShaking: true,
+      legalComments: 'none',
+    },
+    server: {
+      port: 8080,
+      open: true,
+    },
+  }
 })

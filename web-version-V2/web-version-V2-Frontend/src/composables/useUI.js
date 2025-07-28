@@ -1,115 +1,84 @@
 import { ref, toRefs, watch } from 'vue'
 
-// Constants
-const PANEL_DEBOUNCE = 200
-const SCROLL_OPTS = { top: 0, behavior: 'smooth' }
-const MODALS = {
+const PANEL_TOGGLE_DEBOUNCE_MS = 200
+const SMOOTH_SCROLL_OPTIONS = { top: 0, behavior: 'smooth' }
+const MODAL_TYPES = {
   CUSTOMIZER: 'showCustomizer',
   KEY_GENERATOR: 'showKeyGenerator',
   QR_CODE: 'showQrCode'
 }
 
-/**
- * Composable for managing UI state and interactions
- * @returns {Object} UI state and methods
- */
 export function useUI() {
-  // State
-  const persisted = localStorage.getItem('showServerIp')
+  const isServerIpVisibleOnLoad = localStorage.getItem('showServerIp') === 'true'
   const state = ref({
     isPanelOpen: false,
-    isDebouncing: false,
-    showScrollTop: false,
-    showServerIp: persisted === 'true',
-    [MODALS.CUSTOMIZER]: false,
-    [MODALS.KEY_GENERATOR]: false,
-    [MODALS.QR_CODE]: false,
+    isPanelToggleDebouncing: false,
+    showScrollTopButton: false,
+    showServerIp: isServerIpVisibleOnLoad,
+    [MODAL_TYPES.CUSTOMIZER]: false,
+    [MODAL_TYPES.KEY_GENERATOR]: false,
+    [MODAL_TYPES.QR_CODE]: false,
     qrCodeUrl: '',
     selectedServer: null
   })
 
-  const {
-    isPanelOpen,
-    isDebouncing,
-    showScrollTop,
-    showServerIp,
-    showCustomizer,
-    showKeyGenerator,
-    showQrCode,
-    qrCodeUrl,
-    selectedServer
-  } = toRefs(state.value)
+  const stateAsRefs = toRefs(state.value)
 
-  watch(showServerIp, v => {
-    localStorage.setItem('showServerIp', v ? 'true' : 'false')
+  watch(stateAsRefs.showServerIp, (isNowVisible) => {
+    localStorage.setItem('showServerIp', isNowVisible ? 'true' : 'false')
   })
 
-  // Panel controls
-  const closePanel = () => isPanelOpen.value && (isPanelOpen.value = false)
-
-  const togglePanel = () => {
-    if (!isDebouncing.value) {
-      isDebouncing.value = true
-      isPanelOpen.value = !isPanelOpen.value
-      setTimeout(() => {
-        isDebouncing.value = false
-      }, PANEL_DEBOUNCE)
+  const closePanel = () => {
+    if (state.value.isPanelOpen) {
+      state.value.isPanelOpen = false
     }
   }
 
-  // Modal controls
-  const openModal = (type) => {
-    isPanelOpen.value = false
-    state.value[type] = true
+  const togglePanel = () => {
+    if (state.value.isPanelToggleDebouncing) return
+    state.value.isPanelToggleDebouncing = true
+    state.value.isPanelOpen = !state.value.isPanelOpen
+    setTimeout(() => {
+      state.value.isPanelToggleDebouncing = false
+    }, PANEL_TOGGLE_DEBOUNCE_MS)
   }
 
-  const openCustomizer = () => openModal(MODALS.CUSTOMIZER)
-  const openKeyGenerator = () => openModal(MODALS.KEY_GENERATOR)
-
-  // Server operations
-  const handleGenerateKey = (server) => {
-    selectedServer.value = server
-    state.value[MODALS.KEY_GENERATOR] = true
+  const openModal = (modalType) => {
+    closePanel()
+    Object.values(MODAL_TYPES).forEach(modal => {
+      state.value[modal] = modal === modalType
+    })
   }
 
-  const handleShowQR = async (server, generateQR) => {
+  const handleShowQR = async (server, qrCodeGenerator) => {
     try {
-      selectedServer.value = server
-      state.value[MODALS.QR_CODE] = true
-
-      if (qrCodeUrl.value) {
-        URL.revokeObjectURL(qrCodeUrl.value)
+      state.value.selectedServer = server
+      if (state.value.qrCodeUrl) {
+        URL.revokeObjectURL(state.value.qrCodeUrl)
       }
-      qrCodeUrl.value = URL.createObjectURL(await generateQR())
+      const qrBlob = await qrCodeGenerator()
+      state.value.qrCodeUrl = URL.createObjectURL(qrBlob)
+      openModal(MODAL_TYPES.QR_CODE)
     } catch (err) {
-      state.value[MODALS.QR_CODE] = false
+      state.value[MODAL_TYPES.QR_CODE] = false
       throw err
     }
   }
 
-  // Utils
-  const scrollToTop = () => window.scrollTo(SCROLL_OPTS)
-  const cleanup = () => qrCodeUrl.value && URL.revokeObjectURL(qrCodeUrl.value)
+  const cleanupQrCodeUrl = () => {
+    if (state.value.qrCodeUrl) {
+      URL.revokeObjectURL(state.value.qrCodeUrl)
+    }
+  }
 
   return {
-    // State
-    isPanelOpen,
-    showScrollTop,
-    showServerIp,
-    showCustomizer,
-    showKeyGenerator,
-    showQrCode,
-    qrCodeUrl,
-    selectedServer,
-
-    // Methods
+    ...stateAsRefs,
     closePanel,
     togglePanel,
-    scrollToTop,
-    openCustomizer,
-    openKeyGenerator,
-    handleGenerateKey,
+    scrollToTop: () => window.scrollTo(SMOOTH_SCROLL_OPTIONS),
+    openCustomizer: () => openModal(MODAL_TYPES.CUSTOMIZER),
+    openKeyGenerator: () => openModal(MODAL_TYPES.KEY_GENERATOR),
     handleShowQR,
-    cleanup
+    cleanupQrCodeUrl
   }
-} 
+}

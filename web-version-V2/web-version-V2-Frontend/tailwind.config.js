@@ -1,4 +1,3 @@
-/** @type {import('tailwindcss').Config} */
 export default {
   content: [
     "./index.html",
@@ -7,7 +6,6 @@ export default {
   theme: {
     extend: {
       colors: {
-        // VS Code theme
         vscode: {
           'bg': '#1A1A1A',
           'header': '#242424',
@@ -16,29 +14,24 @@ export default {
           'accent': '#0090F1',
         },
         nord: {
-          // Text
           'text': {
             'primary': '#FFFFFF',
             'secondary': '#E6E6E6',
             'error': '#FF3333',
           },
-          // Buttons
           'button': {
             'primary': '#0078D4',
             'primary-hover': '#0090F1',
             'secondary': '#666666',
             'secondary-hover': '#808080',
           },
-          // Backgrounds
           'bg': {
             'card': '#2A2A2A',
             'hover': '#323232',
             'active': '#3D3D3D',
             'overlay': 'rgba(0, 0, 0, 0.75)',
             'overlay-light': 'rgba(0, 0, 0, 0.5)',
-            'overlay-dark': 'rgba(0, 0, 0, 0.85)',
           },
-          // Load states
           'load': {
             'low-bg': '#0B3B1F',
             'low-text': '#4AFF91',
@@ -51,18 +44,15 @@ export default {
             'critical-bg': '#4A1515',
             'critical-text': '#FFBEBE',
           },
-          // Focus rings
           'ring': {
             'primary': '#0086F0',
             'error': '#FF6B6B',
             'secondary': '#606060',
           },
-          // Success states
           'success': {
             'bg': '#0B3B1F',
             'text': '#6EFFAB',
           },
-          // External links
           'external': {
             'github': '#2EA043',
             'nord': '#4AA0FF',

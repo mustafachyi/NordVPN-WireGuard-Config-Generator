@@ -1,233 +1,146 @@
-import { describe, expect, test, beforeEach, beforeAll, afterAll, mock } from "bun:test";
-import { Logger, LogLevel } from "../utils/logger";
-import { 
-  makeRequest, 
-  mockServerResponse, 
-  testServers, 
-  validTestToken, 
-  invalidTestToken, 
-  validConfigRequest 
-} from "../utils/__tests__/test-utils";
-import type { ConfigRequest } from "../utils/__tests__/test-utils";
-import { Hono } from "hono";
-import { serve } from "bun";
-import { CONFIG_VALIDATION } from '../services/configService';
+import { describe, expect, test, beforeAll, afterAll, mock } from 'bun:test';
+import { serve } from 'bun';
+import { app, initializeCacheManager } from '../../index';
+import { makeRequest, validTestToken, validConfigRequest } from '../utils/__tests__/test-utils';
 
-// Types
-type ConsoleSpy = ReturnType<typeof mock>;
+mock.module('qrcode', () => ({
+    default: {
+        toBuffer: mock(() => Promise.resolve(Buffer.from('mock_qr_code_buffer'))),
+    },
+}));
 
-// Constants
-const TEST_CONFIG = {
-  PORT: 3001,
-  VALID_DNS: "1.1.1.1",
-  INVALID_DNS: "invalid.ip",
-  VALID_KEEPALIVE: 30,
-  INVALID_KEEPALIVE: 150
-} as const;
+mock.module('sharp', () => ({
+    default: () => ({
+        webp: () => ({
+            toBuffer: () => Promise.resolve(Buffer.from('mock_webp_buffer')),
+        }),
+    }),
+}));
 
-describe("Nord VPN Config Generator Tests", () => {
-  // Test state
-  let server: ReturnType<typeof serve>;
-  let consoleLogSpy: ConsoleSpy;
-  let consoleWarnSpy: ConsoleSpy;
-  let consoleErrorSpy: ConsoleSpy;
+const TEST_PORT = 3001;
 
-  // Setup and teardown
-  beforeAll(() => {
-    server = serve({
-      port: TEST_CONFIG.PORT,
-      fetch: new Hono().fetch
-    });
-  });
+describe('API Integration Tests', () => {
+    let server: ReturnType<typeof serve>;
+    const originalFetch = global.fetch;
 
-  afterAll(() => {
-    server.stop();
-  });
-
-  beforeEach(() => {
-    // Reset spies
-    consoleLogSpy = mock();
-    consoleWarnSpy = mock();
-    consoleErrorSpy = mock();
-    
-    // Replace console methods with spies
-    console.log = consoleLogSpy;
-    console.warn = consoleWarnSpy;
-    console.error = consoleErrorSpy;
-  });
-
-  describe("Logger System", () => {
-    test("should log messages at appropriate levels", () => {
-      Logger.debug("Test", "Debug message");
-      Logger.info("Test", "Info message");
-      Logger.warn("Test", "Warning message");
-      Logger.error("Test", "Error message");
-
-      expect(consoleLogSpy).toHaveBeenCalledTimes(2);
-      expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
-      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-    });
-
-    test("should respect log level filtering", () => {
-      Logger.setLogLevel(LogLevel.WARN);
-      
-      Logger.debug("Test", "Debug message");
-      Logger.info("Test", "Info message");
-      Logger.warn("Test", "Warning message");
-      Logger.error("Test", "Error message");
-
-      expect(consoleLogSpy).toHaveBeenCalledTimes(0);
-      expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
-      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-    });
-
-    test("should track cache updates", () => {
-      const initialCount = Logger.getCacheUpdateCount();
-      Logger.incrementCacheUpdate();
-      expect(Logger.getCacheUpdateCount()).toBe(initialCount + 1);
-    });
-  });
-
-  describe("API Endpoints", () => {
-    describe("Key Generation", () => {
-      test("should generate key with valid token", async () => {
-        const response = await makeRequest("POST", "/api/key", { token: validTestToken });
-        expect(response.status).toBe(200);
-        expect(response.body).toHaveProperty("key");
-      });
-
-      test("should reject invalid token", async () => {
-        const response = await makeRequest("POST", "/api/key", { token: invalidTestToken });
-        expect(response.status).toBe(401);
-      });
-    });
-
-    describe("Server List", () => {
-      test("should return cached server list", async () => {
-        mockServerResponse(testServers);
-        const response = await makeRequest("GET", "/api/servers");
-        
-        expect(response.status).toBe(200);
-        expect(response.body).toHaveProperty("united_states");
-      });
-
-      test("should handle 304 responses", async () => {
-        const firstResponse = await makeRequest("GET", "/api/servers");
-        const etag = firstResponse.headers.get("ETag") || "";
-        
-        const secondResponse = await makeRequest("GET", "/api/servers", null, {
-          "If-None-Match": etag
+    beforeAll(async () => {
+        const fetchMock = mock(async (resource: URL | Request | string, options?: RequestInit) => {
+            const url = resource.toString();
+            if (url.startsWith(`http://localhost:${TEST_PORT}`)) {
+                return originalFetch(resource, options);
+            }
+            if (url.includes('credentials')) {
+                const token = (options?.headers as Record<string, string>)['Authorization']?.split(':')[1];
+                return token === validTestToken
+                    ? new Response(JSON.stringify({ nordlynx_private_key: 'valid_private_key=' }), { status: 200 })
+                    : new Response(null, { status: 401 });
+            }
+            if (url.includes('servers')) {
+                const mockData = [{
+                    name: 'us_newyork_1', station: 'us-ny.nord.com', hostname: 'us-ny.nord.com', load: 10,
+                    locations: [{ country: { name: 'United States', city: { name: 'New York' } } }],
+                    technologies: [{ metadata: [{ name: 'public_key', value: 'server_public_key=' }] }]
+                }];
+                return new Response(JSON.stringify(mockData), { status: 200 });
+            }
+            return new Response('Mocked fetch error', { status: 500 });
         });
         
-        expect(secondResponse.status).toBe(304);
-      });
+        global.fetch = Object.assign(fetchMock, { preconnect: originalFetch.preconnect });
+
+        await initializeCacheManager();
+        server = serve({ port: TEST_PORT, fetch: app.fetch });
     });
 
-    describe("Config Generation", () => {
-      test("should generate valid config", async () => {
-        const response = await makeRequest("POST", "/api/config", validConfigRequest);
-        expect(response.status).toBe(200);
-        expect(typeof response.body).toBe("string");
-      });
-
-      test("should validate DNS format", async () => {
-        const response = await makeRequest("POST", "/api/config", {
-          ...validConfigRequest,
-          dns: TEST_CONFIG.INVALID_DNS
-        });
-
-        expect(response.status).toBe(400);
-        expect(response.body).toHaveProperty("error");
-      });
-
-      test("should validate keepalive range", async () => {
-        const response = await makeRequest("POST", "/api/config", {
-          ...validConfigRequest,
-          keepalive: TEST_CONFIG.INVALID_KEEPALIVE
-        });
-
-        expect(response.status).toBe(400);
-        expect(response.body).toHaveProperty("error");
-      });
-
-      test("should accept valid parameters", async () => {
-        const response = await makeRequest("POST", "/api/config", {
-          ...validConfigRequest,
-          dns: TEST_CONFIG.VALID_DNS,
-          keepalive: TEST_CONFIG.VALID_KEEPALIVE
-        });
-
-        expect(response.status).toBe(200);
-      });
+    afterAll(() => {
+        server.stop(true);
+        global.fetch = originalFetch;
     });
-  });
 
-  describe("DNS Configuration", () => {
-    describe("Validation", () => {
-      test("should accept single valid DNS", () => {
-        const validRequest = { ...validConfigRequest, dns: "1.1.1.1" };
-        expect(CONFIG_VALIDATION.dns(validRequest.dns)).toBe(true);
-      });
+    test('GET /api/servers should return server list', async () => {
+        const res = await makeRequest('GET', '/api/servers');
+        expect(res.status).toBe(200);
+        expect(res.body.united_states.new_york[0].name).toBe('us_newyork_1');
+        expect(res.headers.get('etag')).toBeDefined();
+    });
 
-      test("should accept multiple valid DNS", () => {
-        const validRequest = { ...validConfigRequest, dns: "1.1.1.1,8.8.8.8,9.9.9.9" };
-        expect(CONFIG_VALIDATION.dns(validRequest.dns)).toBe(true);
-      });
+    test('POST /api/key should succeed with a valid token', async () => {
+        const res = await makeRequest('POST', '/api/key', { body: { token: validTestToken } });
+        expect(res.status).toBe(200);
+        expect(res.body.key).toBe('valid_private_key=');
+    });
 
-      test("should accept multiple DNS with various spacing", () => {
-        const validRequest = { ...validConfigRequest, dns: "1.1.1.1,   8.8.8.8,     9.9.9.9" };
-        expect(CONFIG_VALIDATION.dns(validRequest.dns)).toBe(true);
-      });
+    test('POST /api/key should fail with an invalid token', async () => {
+        const res = await makeRequest('POST', '/api/key', { body: { token: 'invalid' } });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('Invalid token format');
+    });
 
-      test("should reject if any DNS is invalid", () => {
-        const invalidCombos = [
-          "1.1.1.1,invalid.ip",
-          "1.1.1.1,256.256.256.256",
-          "1.1.1.1,8.8.8",
-          "1.1.1.1,8.8.8.8."
-        ];
+    test('POST /api/config should return a text config', async () => {
+        const res = await makeRequest('POST', '/api/config', {
+            body: {
+                ...validConfigRequest,
+                name: "us_newyork_1"
+            }
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers.get('Content-Type')).toContain('text/plain');
+        expect(res.body).toContain('PublicKey=server_public_key=');
+    });
+
+    test('POST /api/config/download should return a file', async () => {
+        const res = await makeRequest('POST', '/api/config/download', {
+            body: {
+                ...validConfigRequest,
+                name: "us_newyork_1"
+            }
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers.get('Content-Disposition')).toBe('attachment; filename="us_newyork_1.conf"');
+    });
+
+    test('POST /api/config/qr should return a webp image', async () => {
+        const res = await makeRequest('POST', '/api/config/qr', {
+            body: {
+                ...validConfigRequest,
+                name: "us_newyork_1"
+            }
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers.get('Content-Type')).toBe('image/webp');
+        expect(res.body instanceof ArrayBuffer).toBe(true);
+    });
+
+    test('POST /api/config should fail with missing fields', async () => {
+        const res = await makeRequest('POST', '/api/config', { body: { country: 'test' } });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain('city');
+    });
+
+    test('POST /api/config should fail with invalid keepalive', async () => {
+        const res = await makeRequest('POST', '/api/config', { body: { ...validConfigRequest, name: "us_newyork_1", keepalive: 999 } });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('Invalid keepalive: must be a number between 15 and 120.');
+    });
+
+    test('POST /api/key should be rate limited after 100 requests', async () => {
+        const RATE_LIMIT = 100;
+        const requests = [];
+        const testKey = 'rate-limit-test-key';
+
+        for (let i = 0; i < RATE_LIMIT; i++) {
+            requests.push(makeRequest('POST', '/api/key', { body: { token: validTestToken }, key: testKey }));
+        }
+
+        const responses = await Promise.all(requests);
+        for (const res of responses) {
+            expect(res.status).not.toBe(429);
+        }
+
+        const rateLimitedRes = await makeRequest('POST', '/api/key', { body: { token: validTestToken }, key: testKey });
         
-        invalidCombos.forEach(dns => {
-          expect(CONFIG_VALIDATION.dns(dns)).toBe(false);
-        });
-      });
-
-      test("should handle empty or undefined DNS", () => {
-        expect(CONFIG_VALIDATION.dns()).toBe(true);
-        expect(CONFIG_VALIDATION.dns("")).toBe(true);
-      });
-    });
-
-    describe("Configuration Generation", () => {
-      test("should generate config with single DNS", async () => {
-        const response = await makeRequest("POST", "/api/config", {
-          ...validConfigRequest,
-          dns: "1.1.1.1"
-        });
-
-        expect(response.status).toBe(200);
-        expect(response.body).toContain("DNS = 1.1.1.1");
-      });
-
-      test("should generate config with multiple DNS", async () => {
-        const response = await makeRequest("POST", "/api/config", {
-          ...validConfigRequest,
-          dns: "1.1.1.1,8.8.8.8"
-        });
-
-        expect(response.status).toBe(200);
-        expect(response.body).toContain("DNS = 1.1.1.1, 8.8.8.8");
-      });
-
-      test("should reject config with invalid DNS combination", async () => {
-        const response = await makeRequest("POST", "/api/config", {
-          ...validConfigRequest,
-          dns: "1.1.1.1,invalid.ip"
-        });
-
-        expect(response.status).toBe(400);
-        expect(response.body).toHaveProperty("error");
-      });
-    });
-  });
-}); 
+        expect(rateLimitedRes.status).toBe(429);
+        expect(rateLimitedRes.body).toBe('Too many requests, please try again later.');
+        expect(rateLimitedRes.headers.get('Retry-After')).toBeDefined();
+    }, 10000);
+});
