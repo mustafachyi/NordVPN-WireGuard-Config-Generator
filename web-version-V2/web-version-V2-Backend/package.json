@@ -11,20 +11,19 @@
     "test:ui": "bun test --watch --rerun-each src/__tests__/index.test.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@types/bun": "^1.2.19",
     "@types/qrcode": "^1.5.5"
   },
   "peerDependencies": {
-    "typescript": "^5.0.0"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
-    "hono": "^4.5.3",
-    "hono-compress": "^0.7.0",
-    "hono-rate-limiter": "^0.4.0",
-    "qrcode": "^1.5.4",
-    "sharp": "^0.33.5"
+    "hono": "^4.8.12",
+    "hono-compress-experimental": "^0.7.0-experimental.7",
+    "hono-rate-limiter": "^0.4.2",
+    "qrcode": "^1.5.4"
   },
   "trustedDependencies": [
-    "sharp"
+    "@mongodb-js/zstd"
   ]
 }

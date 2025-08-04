@@ -9,8 +9,8 @@ const props = defineProps({
   message: { type: String, required: true },
   type: {
     type: String,
-    default: 'info',
-    validator: value => ['info', 'success', 'error'].includes(value)
+    default: 'success',
+    validator: value => ['success', 'error'].includes(value)
   }
 })
 
@@ -21,15 +21,13 @@ let hideTimeoutId = null
 let closeTimeoutId = null
 
 const STYLE_MAP = {
-  info: 'bg-nord-bg-overlay border-nord-text-primary/20 text-nord-text-primary shadow-nord-text-primary/10',
   success: 'bg-nord-success-bg border-nord-success-text/20 text-nord-success-text shadow-nord-success-text/10',
   error: 'bg-nord-load-critical-bg border-nord-load-critical-text/20 text-nord-load-critical-text shadow-nord-load-critical-text/10'
 }
 
 const ICON_MAP = {
   success: 'check',
-  error: 'error',
-  info: 'info'
+  error: 'error'
 }
 
 onMounted(() => {

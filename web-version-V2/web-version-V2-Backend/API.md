@@ -73,12 +73,12 @@ Generates a WireGuard configuration as a downloadable `.conf` file.
 
 ### `POST /api/config/qr`
 
-Generates a WireGuard configuration as a WebP QR code image.
+Generates a WireGuard configuration as a PNG QR code image.
 
 -   **Request Body**: Same as `/api/config`.
 -   **Successful Response (`200 OK`)**:
-    -   **Content-Type**: `image/webp`
-    -   **Body**: The WebP image data.
+    -   **Content-Type**: `image/png`
+    -   **Body**: The PNG image data.
 
 ## Validation Rules
 

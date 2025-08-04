@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted, watch } from 'vue'
+import { onMounted, onUnmounted, watch, defineAsyncComponent } from 'vue'
 import { useServers } from './composables/useServers'
 import { useConfig, prepareConfig } from './composables/useConfig'
 import { useUI } from './composables/useUI'
@@ -7,10 +7,16 @@ import { useToast } from './composables/useToast'
 import { formatDisplayName, debounce } from './utils/utils'
 import { apiService } from './services/apiService'
 import ServerCard from './components/ServerCard.vue'
-import ConfigCustomizer from './components/ConfigCustomizer.vue'
-import KeyGenerator from './components/KeyGenerator.vue'
 import Toast from './components/Toast.vue'
 import Icon from './components/Icon.vue'
+
+const ConfigCustomizer = defineAsyncComponent(() =>
+  import('./components/ConfigCustomizer.vue')
+)
+
+const KeyGenerator = defineAsyncComponent(() =>
+  import('./components/KeyGenerator.vue')
+)
 
 const {
   visibleServers,
@@ -22,7 +28,6 @@ const {
   countries,
   citiesForCountry,
   filteredCount,
-  updateVisibleServers,
   loadMoreServers,
   toggleSort,
   loadServers
@@ -56,8 +61,6 @@ const {
 } = useUI()
 
 const { toast, show: showToast } = useToast()
-
-watch([sortBy, sortOrder, filterCountry, filterCity], updateVisibleServers)
 
 watch(filterCountry, (newCountry) => {
   filterCity.value = !newCountry ? '' :
@@ -113,11 +116,21 @@ const handleCopyConfig = async (server) => {
   }
 }
 
+const prefetchIdleComponents = () => {
+  try {
+    import('./components/ConfigCustomizer.vue')
+    import('./components/KeyGenerator.vue')
+  } catch (e) {
+    // This is a non-critical background task, so failures can be ignored.
+  }
+}
+
 onMounted(async () => {
   try {
     window.scrollTo(0, 0)
     await Promise.all([loadServers(), loadSavedConfig()])
     window.addEventListener('scroll', handleScroll)
+    setTimeout(prefetchIdleComponents, 200)
   } catch (err) {
     showToast(err.message || 'Unable to load application data', 'error')
   }
@@ -147,11 +160,11 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <KeyGenerator v-if="showKeyGenerator" @generate="handleGenerateAndSaveKey" @cancel="showKeyGenerator = false" />
+  <KeyGenerator v-show="showKeyGenerator" @generate="handleGenerateAndSaveKey" @cancel="showKeyGenerator = false" />
 
-  <ConfigCustomizer v-else-if="showCustomizer" :defaultConfig="defaultConfig" :savedConfig="configSettings" @save="handleSaveConfig" @cancel="showCustomizer = false" />
+  <ConfigCustomizer v-show="showCustomizer" :defaultConfig="defaultConfig" :savedConfig="configSettings" @save="handleSaveConfig" @cancel="showCustomizer = false" />
 
-  <div v-else class="min-h-screen bg-vscode-bg text-vscode-text">
+  <div v-show="!showKeyGenerator && !showCustomizer" class="min-h-screen bg-vscode-bg text-vscode-text">
     <header class="sticky top-0 z-50 bg-vscode-header border-b border-vscode-active shadow-lg" role="banner">
       <h1 class="sr-only">NordVPN WireGuard Config Generator</h1>
       <div class="flex flex-col sm:flex-row sm:items-center gap-2 p-2">

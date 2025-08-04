@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { VALIDATION } from '../utils/utils'
 import Icon from './Icon.vue'
 
@@ -22,20 +22,21 @@ const props = defineProps({
 
 const emit = defineEmits(['save', 'cancel'])
 
-const config = ref({
-  privateKey: props.savedConfig.privateKey ?? '',
-  dns: props.savedConfig.dns ?? '',
-  endpoint: props.savedConfig.endpoint ?? props.defaultConfig.endpoint,
-  keepalive: props.savedConfig.keepalive ?? ''
-})
-
-const errors = ref({
-  privateKey: '',
-  dns: '',
-  keepalive: ''
-})
-
+const config = ref({})
+const errors = ref({ privateKey: '', dns: '', keepalive: '' })
 const showPrivateKey = ref(false)
+
+const resetFormState = () => {
+  config.value = {
+    privateKey: props.savedConfig.privateKey ?? '',
+    dns: props.savedConfig.dns ?? '',
+    endpoint: props.savedConfig.endpoint ?? props.defaultConfig.endpoint,
+    keepalive: props.savedConfig.keepalive ?? ''
+  }
+  errors.value = { privateKey: '', dns: '', keepalive: '' }
+}
+
+watch(() => props.savedConfig, resetFormState, { deep: true, immediate: true })
 
 const hasChanges = computed(() =>
   config.value.privateKey !== (props.savedConfig.privateKey ?? '') ||
@@ -82,6 +83,11 @@ const saveConfig = () => {
       endpoint: config.value.endpoint || props.defaultConfig.endpoint
     })
   }
+}
+
+const handleCancel = () => {
+  resetFormState()
+  emit('cancel')
 }
 
 const resetConfig = () => {
@@ -168,7 +174,7 @@ const resetConfig = () => {
       <div class="fixed bottom-0 left-0 right-0 bg-vscode-header border-t border-vscode-active p-4">
         <div class="container mx-auto max-w-2xl flex justify-end gap-3">
           <button type="submit" :disabled="!isValid" :class="[UI_CLASSES.BUTTON_BASE, 'text-white', isValid ? 'bg-nord-button-primary hover:bg-nord-button-primary-hover focus:ring-2 focus:ring-nord-ring-primary/50' : 'bg-nord-button-primary/40 cursor-not-allowed']" aria-label="Save configuration">Save</button>
-          <button type="button" @click="$emit('cancel')" :class="[UI_CLASSES.BUTTON_BASE, 'border border-nord-button-secondary hover:bg-nord-bg-hover focus:ring-2 focus:ring-nord-ring-secondary/50']" aria-label="Cancel changes">Cancel</button>
+          <button type="button" @click="handleCancel" :class="[UI_CLASSES.BUTTON_BASE, 'border border-nord-button-secondary hover:bg-nord-bg-hover focus:ring-2 focus:ring-nord-ring-secondary/50']" aria-label="Cancel changes">Cancel</button>
           <button v-if="hasNonDefaultValues" type="button" @click="resetConfig" :class="[UI_CLASSES.BUTTON_BASE, 'border border-nord-button-secondary hover:bg-nord-bg-hover text-nord-text-secondary focus:ring-2 focus:ring-nord-ring-secondary/50']" aria-label="Reset to default values">Reset</button>
         </div>
       </div>

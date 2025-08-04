@@ -18,10 +18,17 @@ const showToken = ref(false)
 const isLoading = ref(false)
 let debounceTimeout = null
 
+const resetFormState = () => {
+  token.value = ''
+  error.value = ''
+  isLoading.value = false
+  showToken.value = false
+  clearTimeout(debounceTimeout)
+}
+
 const validateToken = (value) => {
   if (!value) return ''
-  if (!VALIDATION.TOKEN.REGEX.test(value)) return VALIDATION.TOKEN.ERROR
-  return ''
+  return VALIDATION.TOKEN.validate(value) ? '' : VALIDATION.TOKEN.ERROR
 }
 
 const handleInput = (event) => {
@@ -52,10 +59,16 @@ const submitGeneration = async () => {
   isLoading.value = true
   try {
     await emit('generate', token.value)
+    resetFormState()
   } catch {
   } finally {
     isLoading.value = false
   }
+}
+
+const handleCancel = () => {
+  resetFormState()
+  emit('cancel')
 }
 
 onBeforeUnmount(() => clearTimeout(debounceTimeout))
@@ -106,7 +119,7 @@ onBeforeUnmount(() => clearTimeout(debounceTimeout))
           <span v-if="isLoading">Generating...</span>
           <span v-else>Generate</span>
         </button>
-        <button type="button" @click="$emit('cancel')" :class="[UI_CLASSES.BUTTON_BASE, 'border border-nord-button-secondary hover:bg-nord-bg-hover focus:ring-nord-ring-secondary/50']">
+        <button type="button" @click="handleCancel" :class="[UI_CLASSES.BUTTON_BASE, 'border border-nord-button-secondary hover:bg-nord-bg-hover focus:ring-nord-ring-secondary/50']">
           Cancel
         </button>
       </div>

@@ -1,108 +1,94 @@
 import type { Context } from 'hono';
-import type { StatusCode } from 'hono/utils/http-status';
 import QRCode from 'qrcode';
-import sharp from 'sharp';
 import {
     validateConfigRequest,
     generateConfiguration,
-    type ValidatedConfigRequest,
+    type ValidatedConfig,
 } from '../services/configService';
 import { serverCache } from '../services/serverService';
 
 type HandlerType = 'text' | 'download' | 'qr';
-type ErrorStatus = Extract<StatusCode, 404 | 500>;
+type ConfigErrorStatus = 404 | 500;
 
-interface ConfigResult {
-    config: string;
-    filename: string;
+interface ConfigData {
+    configText: string;
+    fileName: string;
 }
 
-interface ConfigError {
-    error: string;
-    status: ErrorStatus;
-}
-
-const setNoCacheHeaders = (c: Context): void => {
-    c.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+const setNoCacheHeaders = (context: Context): void => {
+    context.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
 };
 
-const getConfiguration = async (
-    options: ValidatedConfigRequest
-): Promise<ConfigResult | ConfigError> => {
+async function createConfig(options: ValidatedConfig): Promise<{ data?: ConfigData; error?: { message: string; status: ConfigErrorStatus } }> {
     const { country, city, name, ...configOptions } = options;
-    const allServers = await serverCache.getData();
+    const allServers = await serverCache.getServers();
     const server = allServers[country]?.[city]?.find((s) => s.name === name);
 
     if (!server) {
-        return { error: 'Server not found', status: 404 };
+        return { error: { message: 'The requested server could not be found.', status: 404 } };
     }
 
-    const publicKey = serverCache.getPublicKeyById(server.keyId);
+    const publicKey = serverCache.getPublicKey(server.keyId);
     if (!publicKey) {
-        return { error: 'Server public key is not available', status: 500 };
+        return { error: { message: 'Server public key is not available.', status: 500 } };
     }
 
-    return {
-        config: generateConfiguration(server, publicKey, configOptions),
-        filename: `${server.name}.conf`,
-    };
+    const configText = generateConfiguration(server, publicKey, configOptions);
+    return { data: { configText, fileName: `${server.name}.conf` } };
+}
+
+const respondAsText = (context: Context, data: ConfigData) => {
+    setNoCacheHeaders(context);
+    context.header('Content-Type', 'text/plain; charset=utf-8');
+    return context.text(data.configText);
 };
 
-const handleTextResponse = (c: Context, result: ConfigResult) => {
-    setNoCacheHeaders(c);
-    c.header('Content-Type', 'text/plain; charset=utf-8');
-    return c.text(result.config);
+const respondAsDownload = (context: Context, data: ConfigData) => {
+    setNoCacheHeaders(context);
+    context.header('Content-Type', 'application/x-wireguard-config');
+    context.header('Content-Disposition', `attachment; filename="${data.fileName}"`);
+    return context.body(data.configText);
 };
 
-const handleDownloadResponse = (c: Context, result: ConfigResult) => {
-    setNoCacheHeaders(c);
-    c.header('Content-Type', 'application/x-wireguard-config');
-    c.header('Content-Disposition', `attachment; filename="${result.filename}"`);
-    return c.body(result.config);
-};
-
-const handleQrResponse = async (c: Context, result: ConfigResult) => {
+const respondAsQrCode = async (context: Context, data: ConfigData) => {
     try {
-        const qrBuffer = await QRCode.toBuffer(result.config, {
-            type: 'png',
+        const qrPngBuffer = await QRCode.toBuffer(data.configText, {
             width: 256,
             margin: 1,
             errorCorrectionLevel: 'L',
         });
-
-        const webpBuffer = await sharp(qrBuffer).webp({ quality: 90 }).toBuffer();
-        setNoCacheHeaders(c);
-        c.header('Content-Type', 'image/webp');
-        return c.body(webpBuffer);
+        setNoCacheHeaders(context);
+        context.header('Content-Type', 'image/png');
+        return context.body(qrPngBuffer);
     } catch (error) {
-        return c.json({ error: 'Failed to generate QR code' }, { status: 500 });
+        return context.json({ error: 'Failed to generate QR code image.' }, { status: 500 });
     }
 };
 
-export const createConfigHandler =
-    (type: HandlerType) => async (c: Context) => {
-        const body = await c.req.json();
-        const validationResult = validateConfigRequest(body);
+export const createConfigHandler = (type: HandlerType) => async (context: Context) => {
+    const body = await context.req.json().catch(() => ({}));
+    const validation = validateConfigRequest(body);
 
-        if (!validationResult.success) {
-            return c.json({ error: validationResult.error }, { status: 400 });
-        }
+    if (!validation.success) {
+        return context.json({ error: validation.error }, { status: 400 });
+    }
 
-        const configResult = await getConfiguration(validationResult.data);
+    const result = await createConfig(validation.data);
 
-        if ('error' in configResult) {
-            return c.json(
-                { error: configResult.error },
-                { status: configResult.status }
-            );
-        }
+    if (result.error) {
+        return context.json({ error: result.error.message }, { status: result.error.status });
+    }
+    
+    if (!result.data) {
+        return context.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
 
-        switch (type) {
-            case 'text':
-                return handleTextResponse(c, configResult);
-            case 'download':
-                return handleDownloadResponse(c, configResult);
-            case 'qr':
-                return await handleQrResponse(c, configResult);
-        }
-    };
+    switch (type) {
+        case 'text':
+            return respondAsText(context, result.data);
+        case 'download':
+            return respondAsDownload(context, result.data);
+        case 'qr':
+            return await respondAsQrCode(context, result.data);
+    }
+};

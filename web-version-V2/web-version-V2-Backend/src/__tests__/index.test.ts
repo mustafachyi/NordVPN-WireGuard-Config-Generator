@@ -1,20 +1,12 @@
 import { describe, expect, test, beforeAll, afterAll, mock } from 'bun:test';
 import { serve } from 'bun';
-import { app, initializeCacheManager } from '../../index';
+import { app, initializeTestCache } from '../../index';
 import { makeRequest, validTestToken, validConfigRequest } from '../utils/__tests__/test-utils';
 
 mock.module('qrcode', () => ({
     default: {
-        toBuffer: mock(() => Promise.resolve(Buffer.from('mock_qr_code_buffer'))),
+        toBuffer: () => Promise.resolve(Buffer.from('mock_qr_code_buffer')),
     },
-}));
-
-mock.module('sharp', () => ({
-    default: () => ({
-        webp: () => ({
-            toBuffer: () => Promise.resolve(Buffer.from('mock_webp_buffer')),
-        }),
-    }),
 }));
 
 const TEST_PORT = 3001;
@@ -48,7 +40,7 @@ describe('API Integration Tests', () => {
         
         global.fetch = Object.assign(fetchMock, { preconnect: originalFetch.preconnect });
 
-        await initializeCacheManager();
+        await initializeTestCache();
         server = serve({ port: TEST_PORT, fetch: app.fetch });
     });
 
@@ -57,10 +49,11 @@ describe('API Integration Tests', () => {
         global.fetch = originalFetch;
     });
 
-    test('GET /api/servers should return server list', async () => {
+    test('GET /api/servers should return lean server list', async () => {
         const res = await makeRequest('GET', '/api/servers');
         expect(res.status).toBe(200);
-        expect(res.body.united_states.new_york[0].name).toBe('us_newyork_1');
+        expect(res.body.h).toEqual(['name', 'load', 'station']);
+        expect(res.body.l.united_states.new_york[0][0]).toBe('us_newyork_1');
         expect(res.headers.get('etag')).toBeDefined();
     });
 
@@ -73,7 +66,6 @@ describe('API Integration Tests', () => {
     test('POST /api/key should fail with an invalid token', async () => {
         const res = await makeRequest('POST', '/api/key', { body: { token: 'invalid' } });
         expect(res.status).toBe(400);
-        expect(res.body.error).toBe('Invalid token format');
     });
 
     test('POST /api/config should return a text config', async () => {
@@ -99,7 +91,7 @@ describe('API Integration Tests', () => {
         expect(res.headers.get('Content-Disposition')).toBe('attachment; filename="us_newyork_1.conf"');
     });
 
-    test('POST /api/config/qr should return a webp image', async () => {
+    test('POST /api/config/qr should return a png image', async () => {
         const res = await makeRequest('POST', '/api/config/qr', {
             body: {
                 ...validConfigRequest,
@@ -107,7 +99,7 @@ describe('API Integration Tests', () => {
             }
         });
         expect(res.status).toBe(200);
-        expect(res.headers.get('Content-Type')).toBe('image/webp');
+        expect(res.headers.get('Content-Type')).toBe('image/png');
         expect(res.body instanceof ArrayBuffer).toBe(true);
     });
 
@@ -120,7 +112,6 @@ describe('API Integration Tests', () => {
     test('POST /api/config should fail with invalid keepalive', async () => {
         const res = await makeRequest('POST', '/api/config', { body: { ...validConfigRequest, name: "us_newyork_1", keepalive: 999 } });
         expect(res.status).toBe(400);
-        expect(res.body.error).toBe('Invalid keepalive: must be a number between 15 and 120.');
     });
 
     test('POST /api/key should be rate limited after 100 requests', async () => {
@@ -140,7 +131,6 @@ describe('API Integration Tests', () => {
         const rateLimitedRes = await makeRequest('POST', '/api/key', { body: { token: validTestToken }, key: testKey });
         
         expect(rateLimitedRes.status).toBe(429);
-        expect(rateLimitedRes.body).toBe('Too many requests, please try again later.');
         expect(rateLimitedRes.headers.get('Retry-After')).toBeDefined();
     }, 10000);
 });

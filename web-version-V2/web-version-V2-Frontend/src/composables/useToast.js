@@ -7,7 +7,7 @@ export function useToast() {
   const toast = ref(null)
   let activeTimeout = null
 
-  const show = (message, type = 'info') => {
+  const show = (message, type = 'success') => {
     if (!message) return
 
     const displayMessage = message instanceof Error
@@ -17,7 +17,7 @@ export function useToast() {
     clearTimeout(activeTimeout)
     toast.value = {
       message: displayMessage,
-      type: ['info', 'success', 'error'].includes(type) ? type : 'info',
+      type: ['success', 'error'].includes(type) ? type : 'success',
     }
     activeTimeout = setTimeout(() => {
       toast.value = null

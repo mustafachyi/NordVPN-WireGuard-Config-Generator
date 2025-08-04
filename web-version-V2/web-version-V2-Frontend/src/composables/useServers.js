@@ -1,8 +1,9 @@
-import { ref, computed, toRefs } from 'vue'
+import { ref, computed, toRefs, watch } from 'vue'
 import { apiService } from '../services/apiService'
-import { formatDisplayName } from '../utils/utils'
+import { formatDisplayName, debounce } from '../utils/utils'
 
 const VISIBLE_SERVER_INCREMENT = 100
+const FILTER_DEBOUNCE_MS = 250
 
 const SORT_FUNCTIONS = {
   load: (a, b) => a.load - b.load,
@@ -22,6 +23,7 @@ export function useServers() {
   const state = ref({
     allServers: [],
     visibleServers: [],
+    processedServers: [],
     isLoading: false,
     sortBy: 'name',
     sortOrder: 'asc',
@@ -29,7 +31,7 @@ export function useServers() {
     filterCity: ''
   })
 
-  const { allServers, visibleServers, isLoading, sortBy, sortOrder, filterCountry, filterCity } = toRefs(state.value)
+  const { allServers, visibleServers, processedServers, isLoading, sortBy, sortOrder, filterCountry, filterCity } = toRefs(state.value)
 
   const getUniqueSortedValues = (key) => computed(() =>
     [...new Set(allServers.value.map(s => s[key]))].sort()
@@ -43,26 +45,32 @@ export function useServers() {
       : []
   )
 
-  const filteredAndSortedServers = computed(() => {
+  const filteredCount = computed(() => processedServers.value.length)
+
+  const updateVisibleServers = () => {
+    visibleServers.value = processedServers.value.slice(0, VISIBLE_SERVER_INCREMENT)
+  }
+
+  const processServers = () => {
     const servers = allServers.value.filter(s =>
       (!filterCountry.value || s.country === filterCountry.value) &&
       (!filterCity.value || s.city === filterCity.value)
     )
     const compareFunction = SORT_FUNCTIONS[sortBy.value] || SORT_FUNCTIONS.name
     const sortMultiplier = sortOrder.value === 'asc' ? 1 : -1
-    return servers.sort((a, b) => compareFunction(a, b) * sortMultiplier)
-  })
-
-  const filteredCount = computed(() => filteredAndSortedServers.value.length)
-
-  const updateVisibleServers = () => {
-    visibleServers.value = filteredAndSortedServers.value.slice(0, VISIBLE_SERVER_INCREMENT)
+    
+    processedServers.value = servers.sort((a, b) => compareFunction(a, b) * sortMultiplier)
+    updateVisibleServers()
   }
+
+  const debouncedProcessServers = debounce(processServers, FILTER_DEBOUNCE_MS)
+  
+  watch([filterCountry, filterCity, sortBy], debouncedProcessServers)
 
   const loadMoreServers = () => {
     if (isLoading.value) return
     const currentLength = visibleServers.value.length
-    const nextChunk = filteredAndSortedServers.value.slice(currentLength, currentLength + VISIBLE_SERVER_INCREMENT)
+    const nextChunk = processedServers.value.slice(currentLength, currentLength + VISIBLE_SERVER_INCREMENT)
     if (nextChunk.length > 0) {
       visibleServers.value.push(...nextChunk)
     }
@@ -71,6 +79,8 @@ export function useServers() {
   const toggleSort = (newSortBy) => {
     if (sortBy.value === newSortBy) {
       sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+      processedServers.value.reverse()
+      updateVisibleServers()
     } else {
       sortBy.value = newSortBy
       sortOrder.value = 'asc'
@@ -80,19 +90,33 @@ export function useServers() {
   const loadServers = async () => {
     isLoading.value = true
     try {
-      const serverData = await apiService.getServers()
-      allServers.value = Object.entries(serverData).flatMap(([country, cities]) =>
-        Object.entries(cities).flatMap(([city, servers]) =>
-          servers.map(server => createServerViewModel(server, country, city))
+      const { h: headers, l: locations } = await apiService.getServers();
+      const headerMap = Object.fromEntries(headers.map((header, index) => [header, index]));
+      
+      const nameIndex = headerMap.name;
+      const loadIndex = headerMap.load;
+      const stationIndex = headerMap.station;
+
+      allServers.value = Object.entries(locations).flatMap(([country, cities]) =>
+        Object.entries(cities).flatMap(([city, serverTuples]) =>
+          serverTuples.map(tuple => {
+            const server = {
+              name: tuple[nameIndex],
+              load: tuple[loadIndex],
+              station: tuple[stationIndex],
+              ip: tuple[stationIndex],
+            };
+            return createServerViewModel(server, country, city);
+          })
         )
-      )
-      updateVisibleServers()
+      );
+      processServers();
     } catch (err) {
-      throw err
+      throw err;
     } finally {
-      isLoading.value = false
+      isLoading.value = false;
     }
-  }
+  };
 
   return {
     visibleServers,
@@ -104,7 +128,6 @@ export function useServers() {
     countries,
     citiesForCountry,
     filteredCount,
-    updateVisibleServers,
     loadMoreServers,
     toggleSort,
     loadServers

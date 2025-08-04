@@ -1,59 +1,53 @@
-export enum LogLevel {
+enum LogLevel {
     INFO,
     WARN,
     ERROR,
 }
 
-const LOG_LEVEL_MAP: Record<LogLevel, string> = {
+const LEVEL_NAMES: Record<LogLevel, string> = {
     [LogLevel.INFO]: 'INFO',
     [LogLevel.WARN]: 'WARN',
     [LogLevel.ERROR]: 'ERROR',
 };
 
-export class Logger {
-    private static currentLevel: LogLevel = LogLevel.INFO;
+const formatLogEntry = (level: LogLevel, context: string, message: string): string => {
+    const timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const levelName = LEVEL_NAMES[level].padEnd(5);
+    return `[${timestamp}] [${levelName}] [${context}] ${message}`;
+};
 
-    private static formatMessage(
-        level: LogLevel,
-        context: string,
-        message: string
-    ): string {
-        const timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
-        const levelLabel = LOG_LEVEL_MAP[level].padEnd(5);
-        return `[${timestamp}] [${levelLabel}] [${context}] ${message}`;
+const writeLog = (
+    level: LogLevel,
+    context: string,
+    message: string,
+    details?: unknown
+): void => {
+    if (process.env.NODE_ENV === 'test') {
+        return;
     }
 
-    private static log(
-        level: LogLevel,
-        context: string,
-        message: string,
-        details?: unknown
-    ): void {
-        if (level < this.currentLevel || process.env.NODE_ENV === 'test') return;
+    const logMessage = formatLogEntry(level, context, message);
+    const logMethod =
+        level === LogLevel.ERROR
+            ? console.error
+            : level === LogLevel.WARN
+            ? console.warn
+            : console.log;
 
-        const formattedMessage = this.formatMessage(level, context, message);
-        const logMethod =
-            level === LogLevel.ERROR
-                ? console.error
-                : level === LogLevel.WARN
-                ? console.warn
-                : console.log;
-
-        logMethod(formattedMessage);
-        if (details) {
-            logMethod(details);
-        }
+    logMethod(logMessage);
+    if (details) {
+        logMethod(details);
     }
+};
 
-    static info(context: string, message: string): void {
-        this.log(LogLevel.INFO, context, message);
-    }
-
-    static warn(context: string, message: string): void {
-        this.log(LogLevel.WARN, context, message);
-    }
-
-    static error(context: string, message: string, error?: unknown): void {
-        this.log(LogLevel.ERROR, context, message, error);
-    }
-}
+export const Logger = {
+    info: (context: string, message: string): void => {
+        writeLog(LogLevel.INFO, context, message);
+    },
+    warn: (context: string, message: string): void => {
+        writeLog(LogLevel.WARN, context, message);
+    },
+    error: (context: string, message: string, error?: unknown): void => {
+        writeLog(LogLevel.ERROR, context, message, error);
+    },
+};
