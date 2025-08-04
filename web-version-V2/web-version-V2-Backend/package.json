@@ -19,8 +19,8 @@
   },
   "dependencies": {
     "hono": "^4.8.12",
-    "hono-compress-experimental": "^0.7.0-experimental.7",
     "hono-rate-limiter": "^0.4.2",
+    "hono-compress": "^0.7.0",
     "qrcode": "^1.5.4"
   },
   "trustedDependencies": [

@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
 import { cors } from 'hono/cors';
-import { compress } from 'hono-compress-experimental';
 import { serveStatic } from 'hono/bun';
 import { rateLimiter } from 'hono-rate-limiter';
+import { compress } from 'hono-compress';
 import type { Server } from 'bun';
 import { createConfigHandler } from './src/endpoints/config';
 import { handleKeyRequest } from './src/endpoints/key';
@@ -29,7 +29,7 @@ const limiter = rateLimiter({
         context.req.header('x-test-key') ?? context.env.ip ?? 'default',
 });
 
-const cacheControlMiddleware = async (context: Context, next: Next) => {
+const staticAssetCacheMiddleware = async (context: Context, next: Next) => {
     if (context.req.path.startsWith('/assets')) {
         context.header('Cache-Control', `public, max-age=${ONE_YEAR_IN_SECONDS}, immutable`);
     }
@@ -38,7 +38,7 @@ const cacheControlMiddleware = async (context: Context, next: Next) => {
 
 app.use('*', cors());
 app.use('/api/*', limiter);
-app.use('*', cacheControlMiddleware);
+app.use('*', staticAssetCacheMiddleware);
 
 if (process.env.NODE_ENV !== 'test') {
     app.use('/api/*', compress());
@@ -78,7 +78,6 @@ app.onError((error, context) => {
 });
 
 app.get('*', serveStatic({ root: './public' }));
-app.get('/', serveStatic({ path: './public/index.html' }));
 
 const startServer = async () => {
     try {
