@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted, watch, defineAsyncComponent } from 'vue'
+import { onMounted, onUnmounted, watch, ref } from 'vue'
 import { useServers } from './composables/useServers'
 import { useConfig, prepareConfig } from './composables/useConfig'
 import { useUI } from './composables/useUI'
@@ -9,14 +9,8 @@ import { apiService } from './services/apiService'
 import ServerCard from './components/ServerCard.vue'
 import Toast from './components/Toast.vue'
 import Icon from './components/Icon.vue'
-
-const ConfigCustomizer = defineAsyncComponent(() =>
-  import('./components/ConfigCustomizer.vue')
-)
-
-const KeyGenerator = defineAsyncComponent(() =>
-  import('./components/KeyGenerator.vue')
-)
+import ConfigCustomizer from './components/ConfigCustomizer.vue'
+import KeyGenerator from './components/KeyGenerator.vue'
 
 const {
   visibleServers,
@@ -61,20 +55,17 @@ const {
 } = useUI()
 
 const { toast, show: showToast } = useToast()
+const sentinel = ref(null)
+let observer = null
 
 watch(filterCountry, (newCountry) => {
   filterCity.value = !newCountry ? '' :
     citiesForCountry.value.length === 1 ? citiesForCountry.value[0] : ''
 })
 
-const handleScroll = debounce(() => {
-  const { innerHeight, scrollY } = window
-  const { offsetHeight } = document.documentElement
-  if (scrollY > offsetHeight - innerHeight - 1000) {
-    loadMoreServers()
-  }
-  showScrollTopButton.value = scrollY > 500
-}, 100)
+const handleUiScroll = debounce(() => {
+  showScrollTopButton.value = window.scrollY > 500
+}, 150)
 
 const handleGenerateAndSaveKey = async (token) => {
   try {
@@ -116,28 +107,33 @@ const handleCopyConfig = async (server) => {
   }
 }
 
-const prefetchIdleComponents = () => {
-  try {
-    import('./components/ConfigCustomizer.vue')
-    import('./components/KeyGenerator.vue')
-  } catch (e) {
-    // This is a non-critical background task, so failures can be ignored.
-  }
-}
-
 onMounted(async () => {
   try {
     window.scrollTo(0, 0)
     await Promise.all([loadServers(), loadSavedConfig()])
-    window.addEventListener('scroll', handleScroll)
-    setTimeout(prefetchIdleComponents, 200)
+
+    observer = new IntersectionObserver((entries) => {
+      const entry = entries[0]
+      if (entry.isIntersecting && !isLoading.value) {
+        loadMoreServers()
+      }
+    })
+
+    if (sentinel.value) {
+      observer.observe(sentinel.value)
+    }
+    
+    window.addEventListener('scroll', handleUiScroll, { passive: true })
   } catch (err) {
     showToast(err.message || 'Unable to load application data', 'error')
   }
 })
 
 onUnmounted(() => {
-  window.removeEventListener('scroll', handleScroll)
+  if (observer) {
+    observer.disconnect()
+  }
+  window.removeEventListener('scroll', handleUiScroll, { passive: true })
   cleanupQrCodeUrl()
 })
 </script>
@@ -169,7 +165,7 @@ onUnmounted(() => {
       <h1 class="sr-only">NordVPN WireGuard Config Generator</h1>
       <div class="flex flex-col sm:flex-row sm:items-center gap-2 p-2">
         <nav class="flex items-center gap-2 flex-1" role="navigation" aria-label="Main navigation">
-          <button @click="togglePanel" @touchstart.prevent="togglePanel" class="shrink-0 min-w-touch min-h-touch p-2 flex items-center justify-center touch-manipulation focus:outline-none md:hover:bg-nord-bg-hover" aria-label="Toggle navigation menu">
+          <button @click="togglePanel" class="shrink-0 min-w-touch min-h-touch p-2 flex items-center justify-center touch-manipulation focus:outline-none md:hover:bg-nord-bg-hover" aria-label="Toggle navigation menu">
             <Icon name="menu" class="w-5 h-5" />
           </button>
           <div class="flex gap-2 w-full sm:w-auto overflow-hidden" @click="closePanel">
@@ -223,7 +219,7 @@ onUnmounted(() => {
                 @click="showServerIp = !showServerIp"
                 class="relative w-10 h-5 rounded-full transition-colors focus:outline-none"
                 :class="showServerIp ? 'bg-nord-button-primary hover:bg-nord-button-primary-hover' : 'bg-nord-button-secondary hover:bg-nord-button-secondary-hover'"
-                aria-pressed="showServerIp"
+                :aria-pressed="String(showServerIp)"
                 aria-label="Toggle server IP display"
               >
                 <span
@@ -274,6 +270,9 @@ onUnmounted(() => {
           @copy-ip="() => showToast('IP copied', 'success')"
         />
       </div>
+      
+      <div ref="sentinel" class="h-10"></div>
+
       <div v-if="isLoading" class="flex justify-center py-4">
         <div class="w-6 h-6 border-2 border-vscode-accent border-t-transparent rounded-full animate-spin" />
       </div>

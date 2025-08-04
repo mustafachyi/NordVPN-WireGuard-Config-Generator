@@ -32,21 +32,12 @@ const validateToken = (value) => {
 }
 
 const handleInput = (event) => {
-  const sanitized = VALIDATION.TOKEN.sanitize(event.target.value)
-  token.value = sanitized
-  event.target.value = sanitized
+  token.value = VALIDATION.TOKEN.sanitize(event.target.value)
 
   clearTimeout(debounceTimeout)
   debounceTimeout = setTimeout(() => {
     error.value = validateToken(token.value)
   }, 300)
-}
-
-const handlePaste = (event) => {
-  event.preventDefault()
-  const sanitized = VALIDATION.TOKEN.sanitize(event.clipboardData.getData('text'))
-  token.value = sanitized
-  error.value = validateToken(sanitized)
 }
 
 const submitGeneration = async () => {
@@ -91,7 +82,6 @@ onBeforeUnmount(() => clearTimeout(debounceTimeout))
               id="auth-token"
               :value="token"
               @input="handleInput"
-              @paste="handlePaste"
               :type="showToken ? 'text' : 'password'"
               placeholder="64-character hexadecimal token"
               maxlength="64"

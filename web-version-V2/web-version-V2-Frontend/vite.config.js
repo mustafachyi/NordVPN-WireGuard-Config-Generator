@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import compression from 'vite-plugin-compression2'
+import cssInjectedByJsPlugin from 'vite-plugin-css-injected-by-js'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -8,6 +9,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       vue(),
+      cssInjectedByJsPlugin(),
       compression({
         algorithm: 'brotliCompress',
         exclude: [/\.(br)$/, /\.(gz)$/],
@@ -18,7 +20,7 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist',
       assetsInlineLimit: 4096,
       sourcemap: false,
-      minify: 'esbuild',
+      minify: 'terser',
     },
     esbuild: {
       drop: env.PROD ? ['console', 'debugger'] : [],

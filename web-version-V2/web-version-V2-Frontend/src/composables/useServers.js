@@ -2,7 +2,7 @@ import { ref, computed, toRefs, watch } from 'vue'
 import { apiService } from '../services/apiService'
 import { formatDisplayName, debounce } from '../utils/utils'
 
-const VISIBLE_SERVER_INCREMENT = 100
+const VISIBLE_SERVER_INCREMENT = 24
 const FILTER_DEBOUNCE_MS = 250
 
 const SORT_FUNCTIONS = {
