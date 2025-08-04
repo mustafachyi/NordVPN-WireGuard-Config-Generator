@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { Context } from 'hono';
+import type { Context, Next } from 'hono';
 import { cors } from 'hono/cors';
 import { compress } from 'hono-compress-experimental';
 import { serveStatic } from 'hono/bun';
@@ -19,6 +19,8 @@ interface HonoEnv {
 
 const app = new Hono<HonoEnv>();
 
+const ONE_YEAR_IN_SECONDS = 31536000;
+
 const limiter = rateLimiter({
     windowMs: 15 * 60 * 1000,
     limit: 100,
@@ -27,9 +29,17 @@ const limiter = rateLimiter({
         context.req.header('x-test-key') ?? context.env.ip ?? 'default',
 });
 
-app.use('*', cors());
+const cacheControlMiddleware = async (context: Context, next: Next) => {
+    if (context.req.path.startsWith('/assets')) {
+        context.header('Cache-Control', `public, max-age=${ONE_YEAR_IN_SECONDS}, immutable`);
+    }
+    await next();
+};
 
+app.use('*', cors());
 app.use('/api/*', limiter);
+app.use('*', cacheControlMiddleware);
+
 if (process.env.NODE_ENV !== 'test') {
     app.use('/api/*', compress());
 }
