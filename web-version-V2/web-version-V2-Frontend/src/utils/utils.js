@@ -41,14 +41,12 @@ export const VALIDATION = {
     ERROR: 'Invalid IPv4 address',
     validate: dns => {
       if (!dns) return true
-      return dns.split(',').every(ip => {
-        const trimmedIP = ip.trim()
-        return PATTERNS.IPV4.test(trimmedIP) &&
-               trimmedIP.split('.').every(num => {
-                 const value = parseInt(num)
-                 return value >= 0 && value <= 255
-               })
-      })
+      const isSegmentValid = num => parseInt(num, 10) >= 0 && parseInt(num, 10) <= 255
+      const isIpValid = ip => {
+        const trimmed = ip.trim()
+        return PATTERNS.IPV4.test(trimmed) && trimmed.split('.').every(isSegmentValid)
+      }
+      return dns.split(',').every(isIpValid)
     }
   },
 

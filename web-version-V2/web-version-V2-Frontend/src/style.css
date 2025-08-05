@@ -2,21 +2,45 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  font-size: 115%;
-}
+@layer base {
+  :root {
+    font-size: 115%;
+  }
 
-body::-webkit-scrollbar,
-select::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
+  body::-webkit-scrollbar,
+  select::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
 
-body,
-select {
-  -ms-overflow-style: none;
-}
+  body,
+  select {
+    -ms-overflow-style: none;
+  }
 
-* {
-  scrollbar-width: none;
+  * {
+    scrollbar-width: none;
+  }
+
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:not([tabindex='-1']):focus-visible {
+    outline: none;
+    border-color: var(--color-vscode-accent);
+  }
+
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
 }

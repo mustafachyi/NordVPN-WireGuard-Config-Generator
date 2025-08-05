@@ -1,4 +1,5 @@
 import { ref, toRefs, watch } from 'vue'
+import { storageService } from '@/services/storageService'
 
 const PANEL_TOGGLE_DEBOUNCE_MS = 200
 const SMOOTH_SCROLL_OPTIONS = { top: 0, behavior: 'smooth' }
@@ -9,7 +10,7 @@ const MODAL_TYPES = {
 }
 
 export function useUI() {
-  const isServerIpVisibleOnLoad = localStorage.getItem('showServerIp') === 'true'
+  const isServerIpVisibleOnLoad = storageService.get('showServerIp') === true
   const state = ref({
     isPanelOpen: false,
     isPanelToggleDebouncing: false,
@@ -25,7 +26,7 @@ export function useUI() {
   const stateAsRefs = toRefs(state.value)
 
   watch(stateAsRefs.showServerIp, (isNowVisible) => {
-    localStorage.setItem('showServerIp', isNowVisible ? 'true' : 'false')
+    storageService.set('showServerIp', isNowVisible)
   })
 
   const closePanel = () => {

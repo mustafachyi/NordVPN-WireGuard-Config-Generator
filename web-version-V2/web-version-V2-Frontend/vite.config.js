@@ -1,36 +1,45 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import compression from 'vite-plugin-compression2'
 import cssInjectedByJsPlugin from 'vite-plugin-css-injected-by-js'
+import path from 'path'
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
-
-  return {
-    plugins: [
-      vue(),
-      cssInjectedByJsPlugin(),
-      compression({
-        algorithm: 'brotliCompress',
-        exclude: [/\.(br)$/, /\.(gz)$/],
-        deleteOriginalAssets: false,
-      }),
-    ],
-    build: {
-      outDir: 'dist',
-      assetsInlineLimit: 4096,
-      sourcemap: false,
-      minify: 'terser',
+export default defineConfig({
+  plugins: [
+    vue(),
+    cssInjectedByJsPlugin(),
+    compression({
+      algorithms: ['brotliCompress'],
+      exclude: [/\.(br)$/],
+      deleteOriginalAssets: false,
+    }),
+  ],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
     },
-    esbuild: {
-      drop: env.PROD ? ['console', 'debugger'] : [],
-      pure: env.PROD ? ['console.log'] : [],
-      treeShaking: true,
-      legalComments: 'none',
+  },
+  build: {
+    outDir: 'dist',
+    assetsInlineLimit: 4096,
+    sourcemap: false,
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        pure_funcs: ['console.log'],
+      },
+      format: {
+        comments: false,
+      },
     },
-    server: {
-      port: 8080,
-      open: true,
-    },
-  }
+  },
+  esbuild: {
+    treeShaking: true,
+    legalComments: 'none',
+  },
+  server: {
+    port: 8080,
+    open: true,
+  },
 })
