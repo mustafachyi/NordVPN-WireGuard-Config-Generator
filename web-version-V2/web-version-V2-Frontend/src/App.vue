@@ -207,7 +207,7 @@ watch([filterCountry, filterCity], reobserveSentinel)
               <option v-for="country in countries" :key="country" :value="country">{{ formatDisplayName(country) }}</option>
             </select>
             <div class="overflow-hidden transition-[width] duration-200" :class="filterCountry ? 'w-[55%] sm:w-[200px]' : 'w-0'">
-              <select v-model="filterCity" :disabled="citiesForCountry.length < 2" class="w-full bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:border-nord-text-secondary/30">
+              <select v-model="filterCity" :disabled="citiesForCountry.length < 2" class="w-full bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:border-nord-text-secondary/30" aria-label="Filter by city">
                 <option v-if="citiesForCountry.length > 1" value="">All Cities</option>
                 <option v-for="city in citiesForCountry" :key="city" :value="city">{{ formatDisplayName(city) }}</option>
               </select>
@@ -215,11 +215,11 @@ watch([filterCountry, filterCity], reobserveSentinel)
           </div>
         </nav>
         <div class="flex items-center justify-end gap-2 text-xs" @click="closePanel" role="group" aria-label="Sort controls">
-          <button @click="toggleSort('load')" class="flex items-center gap-1 min-w-[80px] px-3 py-1.5 rounded border md:hover:bg-nord-bg-hover font-semibold" :class="sortBy === 'load' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active'" :aria-sort="sortBy === 'load' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'">
+          <button @click="toggleSort('load')" class="flex items-center gap-1 min-w-[80px] px-3 py-1.5 rounded border md:hover:bg-nord-bg-hover font-semibold" :class="sortBy === 'load' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active'" :aria-pressed="sortBy === 'load'">
             <span>Load</span>
             <Icon v-if="sortBy === 'load'" :name="sortOrder === 'asc' ? 'sortAsc' : 'sortDesc'" class="w-4 h-4" />
           </button>
-          <button @click="toggleSort('name')" class="flex items-center gap-1 min-w-[80px] px-3 py-1.5 rounded border md:hover:bg-nord-bg-hover font-semibold" :class="sortBy === 'name' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active'" :aria-sort="sortBy === 'name' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'">
+          <button @click="toggleSort('name')" class="flex items-center gap-1 min-w-[80px] px-3 py-1.5 rounded border md:hover:bg-nord-bg-hover font-semibold" :class="sortBy === 'name' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active'" :aria-pressed="sortBy === 'name'">
             <span>A-Z</span>
             <Icon v-if="sortBy === 'name'" :name="sortOrder === 'asc' ? 'sortAsc' : 'sortDesc'" class="w-4 h-4" />
           </button>
@@ -248,7 +248,7 @@ watch([filterCountry, filterCity], reobserveSentinel)
         </button>
         <label class="flex items-center justify-between cursor-pointer group mt-4">
           <span class="text-sm font-medium text-nord-text-primary">Show Server IP</span>
-          <button type="button" @click="showServerIp = !showServerIp" class="relative w-10 h-5 rounded-full transition-colors" :class="showServerIp ? 'bg-nord-button-primary' : 'bg-nord-button-secondary'" :aria-pressed="String(showServerIp)">
+          <button type="button" @click="showServerIp = !showServerIp" class="relative w-10 h-5 rounded-full transition-colors" :class="showServerIp ? 'bg-nord-button-primary' : 'bg-nord-button-secondary'" :aria-pressed="String(showServerIp)" aria-label="Toggle server IP visibility">
             <span class="absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform" :class="{ 'translate-x-[18px]': showServerIp }" />
           </button>
         </label>
@@ -269,7 +269,7 @@ watch([filterCountry, filterCity], reobserveSentinel)
       </div>
     </aside>
 
-    <main class="container mx-auto px-4 py-6" role="main">
+    <main class="container mx-auto px-4 py-6" role="main" aria-live="polite">
       <h2 class="sr-only">Available Servers</h2>
       <div v-if="visibleServers.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 mx-auto">
         <ServerCard
