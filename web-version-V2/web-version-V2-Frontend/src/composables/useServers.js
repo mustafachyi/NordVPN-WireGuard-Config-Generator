@@ -1,5 +1,4 @@
 import { ref, computed, watch } from 'vue'
-import { apiService } from '@/services/apiService'
 import { formatDisplayName } from '@/utils/utils'
 
 const VISIBLE_SERVER_INCREMENT = 24
@@ -84,33 +83,40 @@ export function useServers() {
   }
 
   const loadServers = async () => {
-    isLoading.value = true
+    isLoading.value = true;
     try {
-      const { h: headers, l: locations } = await apiService.getServers()
-      const headerMap = Object.fromEntries(headers.map((header, index) => [header, index]))
-      
-      const requiredHeaders = ['name', 'load', 'station']
-      if (!requiredHeaders.every(h => h in headerMap)) {
-        throw new Error('API response is missing required server data fields.')
-      }
+        const dataElement = document.getElementById('server-data');
+        if (!dataElement?.textContent) {
+            throw new Error('Inlined server data script not found in HTML.');
+        }
+        const { h: headers, l: locations } = JSON.parse(dataElement.textContent);
+        
+        const headerMap = Object.fromEntries(headers.map((header, index) => [header, index]));
+        const requiredHeaders = ['name', 'load', 'station'];
+        if (!requiredHeaders.every(h => h in headerMap)) {
+            throw new Error('Inlined data is missing required server fields.');
+        }
 
-      allServers.value = Object.entries(locations).flatMap(([country, cities]) =>
-        Object.entries(cities).flatMap(([city, serverTuples]) =>
-          serverTuples.map(tuple => {
-            const serverData = {
-              name: tuple[headerMap.name],
-              load: tuple[headerMap.load],
-              station: tuple[headerMap.station],
-              ip: tuple[headerMap.station],
-            }
-            return createServerViewModel(serverData, country, city)
-          })
-        )
-      )
+        allServers.value = Object.entries(locations).flatMap(([country, cities]) =>
+            Object.entries(cities).flatMap(([city, serverTuples]) =>
+                serverTuples.map(tuple => {
+                    const serverData = {
+                        name: tuple[headerMap.name],
+                        load: tuple[headerMap.load],
+                        station: tuple[headerMap.station],
+                        ip: tuple[headerMap.station],
+                    };
+                    return createServerViewModel(serverData, country, city);
+                })
+            )
+        );
+    } catch (error) {
+        console.error("Failed to load and parse inlined server data:", error);
+        throw new Error('Unable to load server list.');
     } finally {
-      isLoading.value = false
+        isLoading.value = false;
     }
-  }
+  };
 
   return {
     visibleServers,

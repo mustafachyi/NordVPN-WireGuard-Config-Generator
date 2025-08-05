@@ -61,8 +61,6 @@ async function request(endpoint, options = {}) {
 }
 
 export const apiService = {
-    getServers: () => request('/servers'),
-
     generateKey: token => request('/key', {
         method: 'POST',
         body: JSON.stringify({ token })

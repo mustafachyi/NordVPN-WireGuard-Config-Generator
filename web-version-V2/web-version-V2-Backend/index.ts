@@ -66,6 +66,38 @@ app.post('/api/config', createConfigHandler('text'));
 app.post('/api/config/download', createConfigHandler('download'));
 app.post('/api/config/qr', createConfigHandler('qr'));
 
+const rootHandler = async (context: Context) => {
+    try {
+        const [indexHtml, servers] = await Promise.all([
+            Bun.file('./public/index.html').text(),
+            serverCache.getLeanServers(),
+        ]);
+
+        if (!servers) {
+            Logger.warn('HTMLInjection', 'Server data unavailable, serving static HTML.');
+            return context.html(indexHtml);
+        }
+
+        const dataScript = `<script id="server-data" type="application/json">${JSON.stringify(
+            servers
+        )}</script>`;
+        const injectedHtml = indexHtml.replace('</body>', `${dataScript}</body>`);
+
+        context.header('Content-Type', 'text/html; charset=utf-8');
+        context.header('Cache-Control', 'public, max-age=300');
+        return context.html(injectedHtml);
+    } catch (error) {
+        Logger.error('HTMLInjection', 'Failed to inject data into index.html.', error);
+        return context.text('Error: Could not load page.', 500);
+    }
+};
+
+if (process.env.NODE_ENV !== 'test') {
+    app.get('/', compress(), rootHandler);
+} else {
+    app.get('/', rootHandler);
+}
+
 if (process.env.NODE_ENV !== 'test') {
     app.use('*', precompressed({ root: './public', index: 'index.html' }));
 }
