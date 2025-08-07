@@ -6,8 +6,8 @@ interface RawServer {
     station: string;
     hostname: string;
     load: number;
-    locations: { country: { name: string; city: { name: string } } }[];
-    technologies: { metadata: { name: string; value: string }[] }[];
+    locations: { country: { name:string; city: { name:string } } }[];
+    technologies: { metadata: { name:string; value:string }[] }[];
 }
 
 export interface ProcessedServer {
@@ -120,7 +120,7 @@ class ServerCache {
             this.leanPayload = Buffer.from(JSON.stringify(leanList));
             this.lastUpdated = Date.now();
             
-            htmlService.updateInjectedHtml(this.leanPayload);
+            htmlService.updateInjectedHtml(this.leanPayload, this.getEtag());
             Logger.info(LOG_CONTEXT, 'Cache update successful.');
         } catch (error) {
             Logger.error(LOG_CONTEXT, 'Cache update failed.', error);

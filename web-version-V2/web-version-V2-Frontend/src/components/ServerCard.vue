@@ -33,7 +33,7 @@ const copyIpToClipboard = () => {
 </script>
 
 <template>
-  <article class="p-2.5 bg-nord-bg-card border-l-2 border-transparent md:hover:border-nord-button-primary md:hover:bg-nord-bg-hover group transition-colors">
+  <article class="p-2.5 bg-nord-bg-card border-l-2 border-transparent md:hover:border-nord-button-primary md:hover:bg-nord-bg-hover group transition-transform duration-150 md:hover:scale-[1.02] [will-change:transform]">
     <div class="flex justify-between items-start gap-2">
       <div class="min-w-0">
         <h3 class="font-medium truncate">{{ server.displayName }}</h3>

@@ -1,12 +1,7 @@
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, markRaw } from 'vue'
 import { formatDisplayName } from '@/utils/utils'
 
 const VISIBLE_SERVER_INCREMENT = 24
-
-const SORT_FUNCTIONS = {
-  load: (a, b) => a.load - b.load,
-  name: (a, b) => a.displayName.localeCompare(b.displayName),
-}
 
 const createServerViewModel = (server, country, city) => ({
   ...server,
@@ -19,6 +14,9 @@ const createServerViewModel = (server, country, city) => ({
 
 export function useServers() {
   const allServers = ref([])
+  const sortedByName = ref([])
+  const sortedByLoad = ref([])
+  
   const isLoading = ref(false)
   const sortBy = ref('name')
   const sortOrder = ref('asc')
@@ -36,21 +34,20 @@ export function useServers() {
       : []
   )
 
-  const processedServers = computed(() => {
-    const servers = allServers.value.filter(s =>
+  const filteredAndSortedServers = computed(() => {
+    const baseList = sortBy.value === 'load' ? sortedByLoad.value : sortedByName.value
+
+    const filtered = baseList.filter(s =>
       (!filterCountry.value || s.country === filterCountry.value) &&
       (!filterCity.value || s.city === filterCity.value)
     )
-    
-    const compareFunction = SORT_FUNCTIONS[sortBy.value] || SORT_FUNCTIONS.name
-    const sortMultiplier = sortOrder.value === 'asc' ? 1 : -1
-    
-    return servers.sort((a, b) => compareFunction(a, b) * sortMultiplier)
+
+    return sortOrder.value === 'asc' ? filtered : filtered.slice().reverse()
   })
 
-  const visibleServers = computed(() => processedServers.value.slice(0, visibleCount.value))
+  const visibleServers = computed(() => filteredAndSortedServers.value.slice(0, visibleCount.value))
   
-  const filteredCount = computed(() => processedServers.value.length)
+  const filteredCount = computed(() => filteredAndSortedServers.value.length)
   
   const resetVisibleState = () => {
     visibleCount.value = VISIBLE_SERVER_INCREMENT
@@ -64,16 +61,16 @@ export function useServers() {
   })
   
   watch(filterCity, resetVisibleState)
+  watch([sortBy, sortOrder], resetVisibleState)
 
   const loadMoreServers = () => {
     if (isLoading.value) return
-    if (visibleServers.value.length < processedServers.value.length) {
+    if (visibleServers.value.length < filteredAndSortedServers.value.length) {
       visibleCount.value += VISIBLE_SERVER_INCREMENT
     }
   }
 
   const toggleSort = (newSortBy) => {
-    resetVisibleState()
     if (sortBy.value === newSortBy) {
       sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
     } else {
@@ -97,7 +94,7 @@ export function useServers() {
             throw new Error('Inlined data is missing required server fields.');
         }
 
-        allServers.value = Object.entries(locations).flatMap(([country, cities]) =>
+        const flattenedServers = Object.entries(locations).flatMap(([country, cities]) =>
             Object.entries(cities).flatMap(([city, serverTuples]) =>
                 serverTuples.map(tuple => {
                     const serverData = {
@@ -106,10 +103,15 @@ export function useServers() {
                         station: tuple[headerMap.station],
                         ip: tuple[headerMap.station],
                     };
-                    return createServerViewModel(serverData, country, city);
+                    return markRaw(createServerViewModel(serverData, country, city));
                 })
             )
         );
+        
+        allServers.value = flattenedServers
+        sortedByName.value = [...flattenedServers].sort((a, b) => a.displayName.localeCompare(b.displayName))
+        sortedByLoad.value = [...flattenedServers].sort((a, b) => a.load - b.load)
+
     } catch (error) {
         console.error("Failed to load and parse inlined server data:", error);
         throw new Error('Unable to load server list.');

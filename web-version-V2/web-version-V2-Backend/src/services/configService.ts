@@ -1,7 +1,7 @@
 import type { ProcessedServer } from './serverService';
 
 export interface ConfigRequest {
-    [key: string]: unknown;
+    [key:string]: unknown;
 }
 
 export interface ValidatedConfig {
@@ -23,36 +23,60 @@ const PATTERNS = {
     ipv4: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/,
 };
 
-const VALIDATORS: {
-    [key: string]: (value: any) => string | null;
-} = {
-    country: (v) => (typeof v === 'string' && v ? null : 'Field "country" is required and must be a string.'),
-    city: (v) => (typeof v === 'string' && v ? null : 'Field "city" is required and must be a string.'),
-    name: (v) => (typeof v === 'string' && v ? null : 'Field "name" is required and must be a string.'),
-    privateKey: (v) => !v || (typeof v === 'string' && PATTERNS.privateKey.test(v)) ? null : 'Invalid privateKey format.',
-    dns: (v) => !v || (typeof v === 'string' && v.split(',').every(ip => PATTERNS.ipv4.test(ip.trim()))) ? null : 'Invalid DNS format.',
-    endpoint: (v) => !v || ['hostname', 'station'].includes(v) ? null : 'Endpoint must be "hostname" or "station".',
-    keepalive: (v) => !v || (typeof v === 'number' && v >= 15 && v <= 120) ? null : 'Keepalive must be a number between 15 and 120.',
-};
-
 export function validateConfigRequest(request: ConfigRequest): ValidationResult {
-    for (const field in VALIDATORS) {
-        const error = VALIDATORS[field](request[field]);
-        if (error) {
-            return { success: false, error };
+    const { country, city, name, privateKey, dns, endpoint, keepalive } = request;
+    const errors: string[] = [];
+
+    if (typeof country !== 'string' || !country) {
+        errors.push('Field "country" is required and must be a string.');
+    }
+    if (typeof city !== 'string' || !city) {
+        errors.push('Field "city" is required and must be a string.');
+    }
+    if (typeof name !== 'string' || !name) {
+        errors.push('Field "name" is required and must be a string.');
+    }
+
+    if (privateKey && (typeof privateKey !== 'string' || !PATTERNS.privateKey.test(privateKey))) {
+        errors.push('Invalid privateKey format.');
+    }
+
+    let sanitizedDns: string | undefined;
+    if (dns !== undefined && dns !== null && dns !== '') {
+        if (typeof dns === 'string') {
+            const ips = dns.split(',').map(ip => ip.trim());
+            if (ips.every(ip => ip && PATTERNS.ipv4.test(ip))) {
+                sanitizedDns = ips.join(', ');
+            } else {
+                errors.push('Invalid DNS format: All IPs must be valid IPv4 addresses.');
+            }
+        } else {
+            errors.push('Invalid DNS format: Field must be a string.');
         }
     }
-    
+
+    if (endpoint !== undefined && !['hostname', 'station'].includes(endpoint as string)) {
+        errors.push('Endpoint must be "hostname" or "station".');
+    }
+
+    if (keepalive !== undefined && (typeof keepalive !== 'number' || keepalive < 15 || keepalive > 120)) {
+        errors.push('Keepalive must be a number between 15 and 120.');
+    }
+
+    if (errors.length > 0) {
+        return { success: false, error: errors.join(' ') };
+    }
+
     return {
         success: true,
         data: {
-            country: request.country as string,
-            city: request.city as string,
-            name: request.name as string,
-            privateKey: request.privateKey as string | undefined,
-            dns: request.dns as string | undefined,
-            useStation: request.endpoint === 'station',
-            keepalive: request.keepalive as number | undefined,
+            country: country as string,
+            city: city as string,
+            name: name as string,
+            privateKey: privateKey as string | undefined,
+            dns: sanitizedDns,
+            useStation: endpoint === 'station',
+            keepalive: keepalive as number | undefined,
         },
     };
 }
@@ -70,12 +94,11 @@ export function generateConfiguration(
     } = options;
 
     const endpoint = useStation ? server.station : server.hostname;
-    const dnsServers = dns.split(',').map(ip => ip.trim()).join(', ');
 
     return `[Interface]
 PrivateKey=${privateKey}
 Address=10.5.0.2/16
-DNS=${dnsServers}
+DNS=${dns}
 
 [Peer]
 PublicKey=${publicKey}

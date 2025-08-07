@@ -54,7 +54,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div
-    class="fixed bottom-4 right-4 z-[100] transition duration-200"
+    class="fixed bottom-4 right-4 z-[100] transition-[transform,opacity] duration-200 [will-change:transform,opacity]"
     :class="[isVisible ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0', STYLE_MAP[type]]"
     role="alert"
   >

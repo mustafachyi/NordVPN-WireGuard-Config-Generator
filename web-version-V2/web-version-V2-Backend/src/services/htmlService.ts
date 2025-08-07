@@ -7,11 +7,12 @@ class HtmlService {
     private baseHtml: string | null = null;
     private injectedHtml: string | null = null;
     private compressedInjectedHtml: Buffer | null = null;
+    private htmlEtag: string | null = null;
 
     public async initialize(): Promise<void> {
         try {
             this.baseHtml = await Bun.file(HTML_FILE_PATH).text();
-            this.updateInjectedHtml(null);
+            this.updateInjectedHtml(null, 'initial');
             Logger.info('HtmlService', 'Base HTML template initialized and cached.');
         } catch (error) {
             Logger.error('HtmlService', 'Fatal: Could not read base HTML file.', error);
@@ -19,7 +20,7 @@ class HtmlService {
         }
     }
 
-    public updateInjectedHtml(serversPayload: Buffer | null): void {
+    public updateInjectedHtml(serversPayload: Buffer | null, serverEtag: string): void {
         if (!this.baseHtml) {
             const errorMessage = 'Service is starting, please refresh shortly.';
             this.injectedHtml = errorMessage;
@@ -37,6 +38,7 @@ class HtmlService {
         }
         
         this.compressedInjectedHtml = brotliCompressSync(this.injectedHtml);
+        this.htmlEtag = serverEtag;
     }
 
     public getInjectedHtml(): string {
@@ -45,6 +47,10 @@ class HtmlService {
 
     public getCompressedInjectedHtml(): Buffer | null {
         return this.compressedInjectedHtml;
+    }
+
+    public getEtag(): string | null {
+        return this.htmlEtag;
     }
 }
 

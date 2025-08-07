@@ -168,7 +168,7 @@ watch([filterCountry, filterCity], reobserveSentinel)
   <Toast v-if="toast" v-bind="toast" @close="toast = null" />
 
   <div v-if="showQrCode" class="fixed inset-0 z-50 flex items-center justify-center p-4" @click="showQrCode = false" role="dialog" aria-modal="true">
-    <div class="fixed inset-0 bg-nord-bg-overlay/50 backdrop-blur-sm" />
+    <div class="fixed inset-0 bg-nord-bg-overlay" />
     <div class="relative bg-vscode-bg rounded-lg border border-vscode-active overflow-hidden max-w-sm w-full" @click.stop>
       <div class="bg-nord-bg-overlay-light px-3 py-1.5 text-xs font-medium border-b border-vscode-active flex items-center justify-between text-nord-text-primary">
         <span>{{ selectedServer?.name }}</span>
@@ -194,7 +194,7 @@ watch([filterCountry, filterCity], reobserveSentinel)
   />
 
   <div v-show="isMainViewVisible" class="min-h-screen bg-vscode-bg text-vscode-text">
-    <header class="sticky top-0 z-50 bg-vscode-header border-b border-vscode-active shadow-lg" role="banner">
+    <header class="sticky top-0 z-50 bg-vscode-header border-b border-vscode-active" role="banner">
       <h1 class="sr-only">NordVPN WireGuard Config Generator</h1>
       <div class="flex flex-col sm:flex-row sm:items-center gap-2 p-2">
         <nav class="flex items-center gap-2 flex-1" role="navigation" aria-label="Main navigation">
@@ -202,11 +202,11 @@ watch([filterCountry, filterCity], reobserveSentinel)
             <Icon name="menu" class="w-5 h-5" />
           </button>
           <div class="flex gap-2 w-full sm:w-auto overflow-hidden" @click="closePanel">
-            <select v-model="filterCountry" class="bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm transition-all duration-200" :class="{ 'w-full sm:w-[200px]': !filterCountry, 'w-[45%] sm:w-[200px]': filterCountry }" aria-label="Filter by country">
+            <select v-model="filterCountry" class="bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm transition-[width] duration-200 [will-change:width]" :class="{ 'w-full sm:w-[200px]': !filterCountry, 'w-[45%] sm:w-[200px]': filterCountry }" aria-label="Filter by country">
               <option value="">All Countries</option>
               <option v-for="country in countries" :key="country" :value="country">{{ formatDisplayName(country) }}</option>
             </select>
-            <div class="overflow-hidden transition-[width] duration-200" :class="filterCountry ? 'w-[55%] sm:w-[200px]' : 'w-0'">
+            <div class="transition-[width,opacity] duration-200 [will-change:width,opacity]" :class="filterCountry ? 'w-[55%] sm:w-[200px] opacity-100' : 'w-0 opacity-0'">
               <select v-model="filterCity" :disabled="citiesForCountry.length < 2" class="w-full bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:border-nord-text-secondary/30" aria-label="Filter by city">
                 <option v-if="citiesForCountry.length > 1" value="">All Cities</option>
                 <option v-for="city in citiesForCountry" :key="city" :value="city">{{ formatDisplayName(city) }}</option>
@@ -230,8 +230,8 @@ watch([filterCountry, filterCity], reobserveSentinel)
       </div>
     </header>
 
-    <div class="fixed inset-0 bg-nord-bg-overlay/30 z-30 transition-opacity duration-150" :class="isPanelOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'" @click="closePanel" />
-    <aside class="fixed inset-y-0 left-0 w-64 bg-vscode-header border-r border-vscode-active z-40 transition-transform duration-150 flex flex-col" :class="isPanelOpen ? 'translate-x-0' : '-translate-x-full'" role="complementary">
+    <div class="fixed inset-0 bg-nord-bg-overlay/30 z-30 transition-opacity duration-150 [will-change:opacity]" :class="isPanelOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'" @click="closePanel" />
+    <aside class="fixed inset-y-0 left-0 w-64 bg-vscode-header border-r border-vscode-active z-40 transition-transform duration-150 flex flex-col [will-change:transform]" :class="isPanelOpen ? 'translate-x-0' : '-translate-x-full'" role="complementary">
       <div class="h-[115px] sm:h-14 bg-vscode-header" />
       <div class="flex-1 overflow-y-auto p-4 space-y-3">
         <button @click="openCustomizer" class="w-full px-4 py-2 rounded border border-vscode-active bg-nord-bg-overlay/20 text-sm md:hover:bg-nord-bg-hover transition-colors">
@@ -248,8 +248,8 @@ watch([filterCountry, filterCity], reobserveSentinel)
         </button>
         <label class="flex items-center justify-between cursor-pointer group mt-4">
           <span class="text-sm font-medium text-nord-text-primary">Show Server IP</span>
-          <button type="button" @click="showServerIp = !showServerIp" class="relative w-10 h-5 rounded-full transition-colors" :class="showServerIp ? 'bg-nord-button-primary' : 'bg-nord-button-secondary'" :aria-pressed="String(showServerIp)" aria-label="Toggle server IP visibility">
-            <span class="absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform" :class="{ 'translate-x-[18px]': showServerIp }" />
+          <button type="button" @click="showServerIp = !showServerIp" class="relative w-10 h-5 rounded-full transition-colors [will-change:background-color]" :class="showServerIp ? 'bg-nord-button-primary' : 'bg-nord-button-secondary'" :aria-pressed="String(showServerIp)" aria-label="Toggle server IP visibility">
+            <span class="absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform [will-change:transform]" :class="{ 'translate-x-[18px]': showServerIp }" />
           </button>
         </label>
       </div>
@@ -274,6 +274,7 @@ watch([filterCountry, filterCity], reobserveSentinel)
       <div v-if="visibleServers.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 mx-auto">
         <ServerCard
           v-for="server in visibleServers"
+          v-memo="[server, showServerIp]"
           :key="server.name"
           :server="server"
           :show-ip="showServerIp"

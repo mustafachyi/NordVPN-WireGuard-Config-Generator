@@ -86,35 +86,50 @@ if (process.env.NODE_ENV !== 'test') {
     await startServer();
 }
 
-const rootResponseHeaders = {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': 'public, max-age=300',
-};
-
-const compressedRootResponseHeaders = {
-    ...rootResponseHeaders,
-    'Content-Encoding': 'br',
-};
-
 export { app, initializeCache as initializeTestCache };
+
+const createRootResponse = (
+    body: BodyInit | null,
+    useCompression: boolean,
+    etag: string,
+): Response => {
+    const headers: { [key: string]: string } = {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=300, must-revalidate',
+        'ETag': etag,
+    };
+    if (useCompression) {
+        headers['Content-Encoding'] = 'br';
+    }
+    return new Response(body, { headers });
+};
+
 export default {
     port: 3000,
     fetch: (request: Request, server: Server): Response | Promise<Response> => {
-        if (request.method === 'GET' && new URL(request.url).pathname === '/') {
+        const url = new URL(request.url);
+
+        if (request.method === 'GET' && url.pathname === '/') {
+            const clientEtag = request.headers.get('if-none-match');
+            const serverEtag = htmlService.getEtag();
+
+            if (serverEtag && clientEtag === serverEtag) {
+                return new Response(null, { status: 304 });
+            }
+
             const acceptsBrotli = request.headers.get('Accept-Encoding')?.includes('br');
-            
-            if (acceptsBrotli) {
-                const compressedBody = htmlService.getCompressedInjectedHtml();
-                if (compressedBody) {
-                    return new Response(compressedBody, {
-                        headers: compressedRootResponseHeaders,
-                    });
-                }
+            const compressedBody = htmlService.getCompressedInjectedHtml();
+
+            if (acceptsBrotli && compressedBody && serverEtag) {
+                return createRootResponse(compressedBody, true, serverEtag);
+            }
+
+            const body = htmlService.getInjectedHtml();
+            if (serverEtag) {
+                return createRootResponse(body, false, serverEtag);
             }
             
-            return new Response(htmlService.getInjectedHtml(), {
-                headers: rootResponseHeaders,
-            });
+            return new Response("Service warming up...", { status: 503 });
         }
 
         const env: HonoEnv['Bindings'] = {
