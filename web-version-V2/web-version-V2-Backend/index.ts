@@ -89,19 +89,19 @@ if (process.env.NODE_ENV !== 'test') {
 export { app, initializeCache as initializeTestCache };
 
 const createRootResponse = (
-    body: BodyInit | null,
+    body: BodyInit | Buffer | null,
     useCompression: boolean,
     etag: string,
 ): Response => {
     const headers: { [key: string]: string } = {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'public, max-age=300, must-revalidate',
-        'ETag': etag,
+        ETag: etag,
     };
     if (useCompression) {
         headers['Content-Encoding'] = 'br';
     }
-    return new Response(body, { headers });
+    return new Response(body as BodyInit | null, { headers });
 };
 
 export default {
