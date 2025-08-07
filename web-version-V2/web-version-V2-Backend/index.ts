@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
-import type { Context, Next } from 'hono';
+import type { Context } from 'hono';
 import { cors } from 'hono/cors';
-import { serveStatic } from 'hono/bun';
 import { rateLimiter } from 'hono-rate-limiter';
 import { compress } from 'hono-compress';
 import type { Server } from 'bun';
@@ -9,8 +8,9 @@ import { createConfigHandler } from './src/endpoints/config';
 import { handleKeyRequest } from './src/endpoints/key';
 import { initializeCache, serverCache } from './src/services/serverService';
 import { htmlService } from './src/services/htmlService';
+import { assetService } from './src/services/assetService';
+import { memoryAsset } from './src/middleware/memoryAsset';
 import { Logger } from './src/utils/logger';
-import { precompressed } from './src/middleware/precompressed';
 
 interface HonoEnv {
     Bindings: {
@@ -20,8 +20,6 @@ interface HonoEnv {
 
 const app = new Hono<HonoEnv>();
 
-const ONE_YEAR_IN_SECONDS = 31536000;
-
 const limiter = rateLimiter({
     windowMs: 15 * 60 * 1000,
     limit: 100,
@@ -30,16 +28,9 @@ const limiter = rateLimiter({
         context.req.header('x-test-key') ?? context.env.ip ?? 'default',
 });
 
-const staticAssetCacheMiddleware = async (context: Context, next: Next) => {
-    if (context.req.path.startsWith('/assets')) {
-        context.header('Cache-Control', `public, max-age=${ONE_YEAR_IN_SECONDS}, immutable`);
-    }
-    await next();
-};
-
 app.use('*', cors());
+app.use('*', memoryAsset());
 app.use('/api/*', limiter);
-app.use('*', staticAssetCacheMiddleware);
 
 if (process.env.NODE_ENV !== 'test') {
     app.use('/api/*', compress());
@@ -71,10 +62,6 @@ app.post('/api/config', createConfigHandler('text'));
 app.post('/api/config/download', createConfigHandler('download'));
 app.post('/api/config/qr', createConfigHandler('qr'));
 
-if (process.env.NODE_ENV !== 'test') {
-    app.use('*', precompressed({ root: './public', index: 'index.html' }));
-}
-
 app.notFound((context) => context.json({ message: 'Endpoint not found.' }, 404));
 
 app.onError((error, context) => {
@@ -82,11 +69,10 @@ app.onError((error, context) => {
     return context.json({ message: 'An internal server error occurred.' }, 500);
 });
 
-app.get('*', serveStatic({ root: './public' }));
-
 const startServer = async () => {
     try {
         Logger.info('Server', 'Initializing services...');
+        await assetService.initialize();
         await htmlService.initialize();
         await initializeCache();
         Logger.info('Server', 'Services initialized successfully.');
