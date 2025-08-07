@@ -1,11 +1,12 @@
 import { Logger } from '../utils/logger';
+import { htmlService } from './htmlService';
 
 interface RawServer {
     name: string;
     station: string;
     hostname: string;
     load: number;
-    locations: { country: { name:string; city: { name: string } } }[];
+    locations: { country: { name: string; city: { name: string } } }[];
     technologies: { metadata: { name: string; value: string }[] }[];
 }
 
@@ -15,10 +16,6 @@ export interface ProcessedServer {
     hostname: string;
     load: number;
     keyId: number;
-}
-
-export interface GroupedServers {
-    [country: string]: { [city: string]: ProcessedServer[] };
 }
 
 type ServerDataTuple = [string, number, string];
@@ -31,7 +28,7 @@ interface CountryToCityMap {
     [country: string]: CityToServerMap;
 }
 
-export interface LeanServerList {
+interface LeanServerList {
     h: ['name', 'load', 'station'];
     l: CountryToCityMap;
 }
@@ -43,9 +40,9 @@ const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1000;
 
 class ServerCache {
-    private cache: GroupedServers = {};
-    private leanCache: LeanServerList | null = null;
+    private serversByName = new Map<string, ProcessedServer>();
     private publicKeys = new Map<number, string>();
+    private leanPayload: Buffer | null = null;
     private lastUpdated = 0;
     private isUpdating = false;
     private updateTimer: Timer | null = null;
@@ -53,60 +50,6 @@ class ServerCache {
 
     private static sanitize(name: string): string {
         return name.toLowerCase().replace(/[\s/\\:*?"<>|#]+/g, '_');
-    }
-
-    private transform(servers: RawServer[]): GroupedServers {
-        const grouped: GroupedServers = {};
-        const keyLookup = new Map<string, number>();
-        this.publicKeys.clear();
-        this.nextKeyId = 1;
-
-        for (const server of servers) {
-            const location = server.locations[0];
-            const publicKeyMeta = server.technologies.flatMap(t => t.metadata).find(m => m.name === 'public_key');
-            if (!location?.country?.name || !location?.country?.city?.name || !publicKeyMeta?.value) {
-                continue;
-            }
-
-            const publicKey = publicKeyMeta.value;
-            let keyId = keyLookup.get(publicKey);
-            if (keyId === undefined) {
-                keyId = this.nextKeyId++;
-                keyLookup.set(publicKey, keyId);
-                this.publicKeys.set(keyId, publicKey);
-            }
-
-            const country = ServerCache.sanitize(location.country.name);
-            const city = ServerCache.sanitize(location.country.city.name);
-
-            (grouped[country] ||= {})[city] ||= [];
-            grouped[country][city].push({
-                name: ServerCache.sanitize(server.name),
-                station: server.station,
-                hostname: server.hostname,
-                load: server.load,
-                keyId,
-            });
-        }
-        return grouped;
-    }
-
-    private computeLeanList(fullData: GroupedServers): LeanServerList {
-        const locations = Object.fromEntries(
-            Object.entries(fullData).map(([country, cities]) => [
-                country,
-                Object.fromEntries(
-                    Object.entries(cities).map(([city, servers]) => [
-                        city,
-                        servers.map(s => [s.name, s.load, s.station] as ServerDataTuple),
-                    ])
-                ),
-            ])
-        );
-        return {
-            h: ['name', 'load', 'station'],
-            l: locations,
-        };
     }
 
     private async fetchWithRetry(): Promise<RawServer[]> {
@@ -134,9 +77,50 @@ class ServerCache {
 
         try {
             const rawData = await this.fetchWithRetry();
-            this.cache = this.transform(rawData);
-            this.leanCache = this.computeLeanList(this.cache);
+            const newServersByName = new Map<string, ProcessedServer>();
+            const newPublicKeys = new Map<string, number>();
+            const leanList: LeanServerList = { h: ['name', 'load', 'station'], l: {} };
+            this.publicKeys.clear();
+            this.nextKeyId = 1;
+
+            for (const server of rawData) {
+                const location = server.locations[0];
+                const publicKeyMeta = server.technologies.flatMap(t => t.metadata).find(m => m.name === 'public_key');
+                if (!location?.country?.name || !location?.country?.city?.name || !publicKeyMeta?.value) {
+                    continue;
+                }
+
+                const publicKey = publicKeyMeta.value;
+                let keyId = newPublicKeys.get(publicKey);
+                if (keyId === undefined) {
+                    keyId = this.nextKeyId++;
+                    newPublicKeys.set(publicKey, keyId);
+                    this.publicKeys.set(keyId, publicKey);
+                }
+
+                const country = ServerCache.sanitize(location.country.name);
+                const city = ServerCache.sanitize(location.country.city.name);
+                const name = ServerCache.sanitize(server.name);
+
+                const processedServer: ProcessedServer = {
+                    name,
+                    station: server.station,
+                    hostname: server.hostname,
+                    load: server.load,
+                    keyId,
+                };
+                newServersByName.set(name, processedServer);
+
+                const countryGroup = (leanList.l[country] ||= {});
+                const cityGroup = (countryGroup[city] ||= []);
+                cityGroup.push([name, server.load, server.station]);
+            }
+
+            this.serversByName = newServersByName;
+            this.leanPayload = Buffer.from(JSON.stringify(leanList));
             this.lastUpdated = Date.now();
+            
+            htmlService.updateInjectedHtml(this.leanPayload);
             Logger.info(LOG_CONTEXT, 'Cache update successful.');
         } catch (error) {
             Logger.error(LOG_CONTEXT, 'Cache update failed.', error);
@@ -159,18 +143,12 @@ class ServerCache {
         return this.publicKeys.get(keyId);
     }
 
-    public async getServers(): Promise<GroupedServers> {
-        if (this.lastUpdated === 0) {
-            await this.initialize();
-        }
-        return this.cache;
+    public getServerByName(name: string): ProcessedServer | undefined {
+        return this.serversByName.get(name);
     }
 
-    public async getLeanServers(): Promise<LeanServerList | null> {
-        if (this.lastUpdated === 0) {
-            await this.initialize();
-        }
-        return this.leanCache;
+    public getLeanPayload(): Buffer | null {
+        return this.leanPayload;
     }
 }
 

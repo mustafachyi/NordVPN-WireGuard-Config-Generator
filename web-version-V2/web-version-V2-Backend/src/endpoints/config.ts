@@ -20,9 +20,8 @@ const setNoCacheHeaders = (context: Context): void => {
 };
 
 async function createConfig(options: ValidatedConfig): Promise<{ data?: ConfigData; error?: { message: string; status: ConfigErrorStatus } }> {
-    const { country, city, name, ...configOptions } = options;
-    const allServers = await serverCache.getServers();
-    const server = allServers[country]?.[city]?.find((s) => s.name === name);
+    const { name, ...configOptions } = options;
+    const server = serverCache.getServerByName(name);
 
     if (!server) {
         return { error: { message: 'The requested server could not be found.', status: 404 } };
