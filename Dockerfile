@@ -11,7 +11,7 @@ RUN git clone https://github.com/mustafachyi/NordVPN-WireGuard-Config-Generator 
 
 WORKDIR /app/web-version-V2/web-version-V2-Backend
 
-RUN bun install
+RUN bun install && bun run build
 
 EXPOSE 3000
 

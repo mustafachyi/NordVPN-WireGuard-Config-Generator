@@ -5,7 +5,7 @@ import {
     generateConfiguration,
     type ValidatedConfig,
 } from '../services/configService';
-import { serverCache } from '../services/serverService';
+import { serverCache, type ProcessedServer } from '../services/serverService';
 
 type HandlerType = 'text' | 'download' | 'qr';
 type ConfigErrorStatus = 404 | 500;
@@ -17,6 +17,17 @@ interface ConfigData {
 
 const setNoCacheHeaders = (context: Context): void => {
     context.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+};
+
+const generateCompliantFilename = (server: ProcessedServer): string => {
+    const serverNumberMatch = server.name.match(/\d+$/);
+    if (!serverNumberMatch) {
+        const fallbackName = `wg${server.station.replace(/\./g, '')}`;
+        return `${fallbackName.substring(0, 15)}.conf`;
+    }
+    const serverNumber = serverNumberMatch[0];
+    const baseName = `${server.countryCode}${serverNumber}`;
+    return `${baseName.substring(0, 15)}.conf`;
 };
 
 async function createConfig(options: ValidatedConfig): Promise<{ data?: ConfigData; error?: { message: string; status: ConfigErrorStatus } }> {
@@ -33,7 +44,8 @@ async function createConfig(options: ValidatedConfig): Promise<{ data?: ConfigDa
     }
 
     const configText = generateConfiguration(server, publicKey, configOptions);
-    return { data: { configText, fileName: `${server.name}.conf` } };
+    const fileName = generateCompliantFilename(server);
+    return { data: { configText, fileName } };
 }
 
 const respondAsText = (context: Context, data: ConfigData) => {

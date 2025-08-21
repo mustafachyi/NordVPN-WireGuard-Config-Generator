@@ -25,6 +25,7 @@ class Server:
     station: str
     load: int
     country: str
+    country_code: str
     city: str
     latitude: float
     longitude: float
@@ -113,6 +114,7 @@ class ConfigurationOrchestrator:
             return None
 
         processed_servers = await self._process_server_data(all_servers_data, user_location)
+        
         sorted_servers = sorted(processed_servers, key=lambda s: (s.load, s.distance))
         best_servers_by_location = self._get_best_servers(sorted_servers)
         
@@ -174,7 +176,7 @@ class ConfigurationOrchestrator:
     def _create_save_task(self, server: Server, subfolder: str, progress, task_id):
         config_str = self._generate_wireguard_config_string(server, self._preferences, self._private_key)
         path = self._output_dir / subfolder / self._sanitize_path_part(server.country) / self._sanitize_path_part(server.city)
-        filename = f"{self._sanitize_path_part(server.name)}.conf"
+        filename = self._generate_compliant_filename(server)
         return self._save_config_file(config_str, path, filename, progress, task_id)
 
     async def _save_config_file(self, config_string: str, path: Path, filename: str, progress, task_id):
@@ -185,6 +187,17 @@ class ConfigurationOrchestrator:
         progress.update(task_id, advance=1)
 
     @staticmethod
+    def _generate_compliant_filename(server: Server) -> str:
+        server_number_match = re.search(r'\d+$', server.name)
+        if not server_number_match:
+            fallback_name = f"wg{server.station.replace('.', '')}"
+            return f"{fallback_name[:15]}.conf"
+        
+        server_number = server_number_match.group(0)
+        base_name = f"{server.country_code}{server_number}"
+        return f"{base_name[:15]}.conf"
+
+    @staticmethod
     def _generate_wireguard_config_string(server: Server, preferences: UserPreferences, private_key: str) -> str:
         endpoint = server.station if preferences.use_ip_for_endpoint else server.hostname
         return f"[Interface]\nPrivateKey = {private_key}\nAddress = 10.5.0.2/16\nDNS = {preferences.dns}\n\n[Peer]\nPublicKey = {server.public_key}\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = {endpoint}:51820\nPersistentKeepalive = {preferences.persistent_keepalive}"
@@ -193,6 +206,8 @@ class ConfigurationOrchestrator:
     def _parse_server_data(server_data: Dict[str, Any], user_location: Tuple[float, float]) -> Optional[Server]:
         try:
             location = server_data['locations'][0]
+            country_info = location['country']
+            
             public_key = next(
                 m['value'] for t in server_data['technologies']
                 if t['identifier'] == 'wireguard_udp'
@@ -204,7 +219,8 @@ class ConfigurationOrchestrator:
             return Server(
                 name=server_data['name'], hostname=server_data['hostname'],
                 station=server_data['station'], load=int(server_data.get('load', 0)),
-                country=location['country']['name'], city=location['country'].get('city', {}).get('name', 'Unknown'),
+                country=country_info['name'], country_code=country_info['code'].lower(),
+                city=country_info.get('city', {}).get('name', 'Unknown'),
                 latitude=location['latitude'], longitude=location['longitude'],
                 public_key=public_key, distance=distance
             )

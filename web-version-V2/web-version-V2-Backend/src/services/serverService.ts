@@ -6,8 +6,8 @@ interface RawServer {
     station: string;
     hostname: string;
     load: number;
-    locations: { country: { name:string; city: { name:string } } }[];
-    technologies: { metadata: { name:string; value:string }[] }[];
+    locations: { country: { name: string; code: string; city: { name: string } } }[];
+    technologies: { metadata: { name: string; value: string }[] }[];
 }
 
 export interface ProcessedServer {
@@ -15,6 +15,7 @@ export interface ProcessedServer {
     station: string;
     hostname: string;
     load: number;
+    countryCode: string;
     keyId: number;
 }
 
@@ -86,7 +87,7 @@ class ServerCache {
             for (const server of rawData) {
                 const location = server.locations[0];
                 const publicKeyMeta = server.technologies.flatMap(t => t.metadata).find(m => m.name === 'public_key');
-                if (!location?.country?.name || !location?.country?.city?.name || !publicKeyMeta?.value) {
+                if (!location?.country?.name || !location?.country?.code || !location?.country?.city?.name || !publicKeyMeta?.value) {
                     continue;
                 }
 
@@ -107,6 +108,7 @@ class ServerCache {
                     station: server.station,
                     hostname: server.hostname,
                     load: server.load,
+                    countryCode: location.country.code.toLowerCase(),
                     keyId,
                 };
                 newServersByName.set(name, processedServer);

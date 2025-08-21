@@ -1,9 +1,7 @@
-const API_CONFIG = {
-    development: { baseURL: 'http://localhost:3000/api', timeout: 5000 },
-    production: { baseURL: '/api', timeout: 10000 }
+const apiSettings = {
+    baseURL: '/api',
+    timeout: 10000
 };
-
-const apiSettings = API_CONFIG[import.meta.env.PROD ? 'production' : 'development'];
 
 const CONTENT_TYPES = {
     JSON: 'application/json',
@@ -15,8 +13,6 @@ const CONTENT_TYPES = {
 const responseHandlers = {
     [CONTENT_TYPES.JSON]: r => r.json(),
     [CONTENT_TYPES.TEXT]: r => r.text(),
-    [CONTENT_TYPES.WIREGUARD]: r => r.blob(),
-    [CONTENT_TYPES.IMAGE]: r => r.blob()
 };
 
 async function request(endpoint, options = {}) {
@@ -45,6 +41,11 @@ async function request(endpoint, options = {}) {
         }
 
         const contentType = response.headers.get('content-type') || '';
+        
+        if (contentType.includes(CONTENT_TYPES.WIREGUARD) || contentType.startsWith(CONTENT_TYPES.IMAGE)) {
+            return response;
+        }
+
         const handler = Object.entries(responseHandlers).find(
             ([type]) => contentType.includes(type)
         )?.[1] || (r => r.text());
@@ -71,15 +72,31 @@ export const apiService = {
         body: JSON.stringify(config)
     }),
 
-    downloadConfig: config => request('/config/download', {
-        method: 'POST',
-        body: JSON.stringify(config),
-        headers: { 'Accept': CONTENT_TYPES.WIREGUARD }
-    }),
+    downloadConfig: async (config) => {
+        const response = await request('/config/download', {
+            method: 'POST',
+            body: JSON.stringify(config),
+            headers: { 'Accept': CONTENT_TYPES.WIREGUARD }
+        });
 
-    generateQR: config => request('/config/qr', {
-        method: 'POST',
-        body: JSON.stringify(config),
-        headers: { 'Accept': CONTENT_TYPES.IMAGE }
-    })
+        const disposition = response.headers.get('content-disposition');
+        let filename = null;
+        if (disposition && disposition.includes('attachment')) {
+            const match = /filename="([^"]+)"/.exec(disposition);
+            if (match && match[1]) {
+                filename = match[1];
+            }
+        }
+        const blob = await response.blob();
+        return { blob, filename };
+    },
+
+    generateQR: async (config) => {
+        const response = await request('/config/qr', {
+            method: 'POST',
+            body: JSON.stringify(config),
+            headers: { 'Accept': CONTENT_TYPES.IMAGE }
+        });
+        return response.blob();
+    }
 };

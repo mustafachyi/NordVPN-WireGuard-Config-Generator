@@ -64,11 +64,11 @@ export function useConfig() {
   
   const downloadConfig = async (server) => {
     const config = prepareConfig(server)
-    const blob = await apiService.downloadConfig(config)
+    const { blob, filename } = await apiService.downloadConfig(config)
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${server.name}.conf`
+    link.download = filename || `${server.name}.conf`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
