@@ -33,6 +33,48 @@ Install the package using `pip`:
 pip install nord-config-generator
 ```
 
+## Running with Docker
+
+For a dependency-free execution, the application can be run using Docker. This method does not require a local Python installation.
+
+### Method 1: Docker Compose (Recommended)
+
+1.  Create a file named `docker-compose.yml` in an empty directory with the following content:
+
+    ```yaml
+    services:
+      nordgen:
+        image: mustafachyi/nordgen:latest
+        stdin_open: true
+        tty: true
+        volumes:
+          - ./generated_configs:/data
+    ```
+
+2.  Run the application from the same directory:
+
+    ```sh
+    docker-compose run --rm nordgen
+    ```
+    Generated files will be saved to a new `generated_configs` directory.
+
+### Method 2: Docker Run
+
+Alternatively, use the `docker run` command directly without creating a configuration file.
+
+*   **Linux / macOS:**
+    ```sh
+    docker run -it --rm -v "$(pwd)/generated_configs:/data" mustafachyi/nordgen:latest
+    ```
+*   **Windows (PowerShell):**
+    ```sh
+    docker run -it --rm -v "${PWD}/generated_configs:/data" mustafachyi/nordgen:latest
+    ```
+*   **Windows (Command Prompt):**
+    ```sh
+    docker run -it --rm -v "%cd%/generated_configs:/data" mustafachyi/nordgen:latest
+    ```
+
 ## Usage
 
 ### Generate Configurations (Default Action)
