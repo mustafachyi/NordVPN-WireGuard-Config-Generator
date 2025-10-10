@@ -9,6 +9,16 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate Dockerfile for PyPI release
+        run: |
+          echo "FROM python:3.11-slim-bookworm" > pypi.Dockerfile
+          echo "WORKDIR /data" >> pypi.Dockerfile
+          echo "RUN pip install --no-cache-dir nord-config-generator" >> pypi.Dockerfile
+          echo "ENTRYPOINT [\"nordgen\"]" >> pypi.Dockerfile
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -18,10 +28,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
+          context: .
+          file: ./pypi.Dockerfile
           push: true
           tags: mustafachyi/nordgen:latest
-          dockerfile_inline: |
-            FROM python:3.11-slim-bookworm
-            WORKDIR /data
-            RUN pip install --no-cache-dir nord-config-generator
-            ENTRYPOINT ["nordgen"]
