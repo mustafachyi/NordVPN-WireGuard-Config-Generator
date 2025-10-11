@@ -12,14 +12,14 @@
     "test:ui": "bun test --watch --rerun-each src/__tests__/index.test.ts"
   },
   "devDependencies": {
-    "@types/bun": "^1.2.19",
+    "@types/bun": "^1.3.0",
     "@types/qrcode": "^1.5.5"
   },
   "peerDependencies": {
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "hono": "^4.8.12",
+    "hono": "^4.9.10",
     "hono-rate-limiter": "^0.4.2",
     "hono-compress": "^0.7.0",
     "qrcode": "^1.5.4"
