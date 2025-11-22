@@ -9,8 +9,8 @@ export default defineConfig({
     vue(),
     cssInjectedByJsPlugin(),
     compression({
-      algorithms: ['brotliCompress'],
-      exclude: [/\.(br)$/],
+      algorithm: 'brotliCompress',
+      exclude: [/\.(br)$/, /\.(gz)$/],
       deleteOriginalAssets: false,
     }),
   ],
@@ -20,23 +20,46 @@ export default defineConfig({
     },
   },
   build: {
+    target: 'esnext',
     outDir: 'dist',
+    emptyOutDir: true,
+    reportCompressedSize: false,
     assetsInlineLimit: 4096,
+    modulePreload: {
+      polyfill: false,
+    },
     sourcemap: false,
     minify: 'terser',
     terserOptions: {
       compress: {
         drop_console: true,
-        pure_funcs: ['console.log'],
+        drop_debugger: true,
+        pure_funcs: ['console.log', 'console.info', 'console.debug', 'console.warn'],
+        passes: 3,
+        ecma: 2020,
+        unsafe: true,
+        unsafe_arrows: true,
+        unsafe_methods: true,
+        unsafe_proto: true,
+        booleans_as_integers: true,
+      },
+      mangle: {
+        toplevel: true,
       },
       format: {
         comments: false,
+        ecma: 2020,
       },
     },
-  },
-  esbuild: {
-    treeShaking: true,
-    legalComments: 'none',
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (id.includes('node_modules')) {
+            return 'vendor'
+          }
+        },
+      },
+    },
   },
   server: {
     port: 8080,

@@ -4,298 +4,181 @@ import { useServers } from '@/composables/useServers'
 import { useConfig } from '@/composables/useConfig'
 import { useUI } from '@/composables/useUI'
 import { useToast } from '@/composables/useToast'
-import { formatDisplayName, debounce } from '@/utils/utils'
-import { apiService } from '@/services/apiService'
+import { api } from '@/services/apiService'
 import ServerCard from '@/components/ServerCard.vue'
 import Toast from '@/components/Toast.vue'
 import Icon from '@/components/Icon.vue'
 import ConfigCustomizer from '@/components/ConfigCustomizer.vue'
 import KeyGenerator from '@/components/KeyGenerator.vue'
 
-const {
-  visibleServers,
-  isLoading,
-  sortBy,
-  sortOrder,
-  filterCountry,
-  filterCity,
-  countries,
-  citiesForCountry,
-  filteredCount,
-  loadMoreServers,
-  toggleSort,
-  loadServers
-} = useServers()
+const srv = useServers()
+const cfg = useConfig()
+const ui = useUI()
+const notif = useToast()
 
-const {
-  sessionPrivateKey,
-  persistedSettings,
-  defaultSettings,
-  loadPersistedSettings,
-  saveSettings,
-  setSessionPrivateKey,
-  downloadConfig,
-  copyConfig,
-  prepareConfig
-} = useConfig()
-
-const {
-  isPanelOpen,
-  showScrollTopButton,
-  showServerIp,
-  showCustomizer,
-  showKeyGenerator,
-  showQrCode,
-  qrCodeUrl,
-  selectedServer,
-  closePanel,
-  togglePanel,
-  scrollToTop,
-  openCustomizer,
-  openKeyGenerator,
-  handleShowQR,
-  cleanupQrCodeUrl
-} = useUI()
-
-const { toast, show: showToast } = useToast()
 const sentinel = ref(null)
-let observer = null
+let obs = null
+let ticking = false
 
-const isMainViewVisible = computed(() => !showKeyGenerator.value && !showCustomizer.value)
+const mainView = computed(() => !ui.modals.value.key && !ui.modals.value.custom)
+const emptyMsg = computed(() => srv.fCountry.value ? 'No servers match criteria.' : 'No servers loaded.')
 
-const emptyStateMessage = computed(() => {
-  if (filterCountry.value) {
-    return 'No servers match your current filter criteria.'
-  }
-  return 'No servers could be loaded at this time.'
-})
-
-const handleUiScroll = debounce(() => {
-  showScrollTopButton.value = window.scrollY > 500
-}, 150)
-
-const reobserveSentinel = async () => {
-  await nextTick()
-  if (observer) {
-    observer.disconnect()
-    if (sentinel.value) {
-      observer.observe(sentinel.value)
-    }
-  }
-}
-
-const handleGenerateKey = async (token) => {
-  try {
-    const { key } = await apiService.generateKey(token)
-    setSessionPrivateKey(key)
-    showKeyGenerator.value = false
-    showToast('Key generated for this session. Save it securely.', 'success')
-  } catch (err) {
-    const message = err.status === 401 ? 'The provided token is invalid' : 'Key generation failed'
-    showToast(message, 'error')
-  }
-}
-
-const handleApplyConfig = (config) => {
-  try {
-    setSessionPrivateKey(config.privateKey)
-    saveSettings({
-      dns: config.dns,
-      endpoint: config.endpoint,
-      keepalive: config.keepalive,
+const onScroll = () => {
+  if (!ticking) {
+    window.requestAnimationFrame(() => {
+      ui.topBtn.value = window.scrollY > 500
+      ticking = false
     })
-    showCustomizer.value = false
-    showToast('Configuration applied for this session', 'success')
-  } catch (err) {
-    showToast(err.message, 'error')
+    ticking = true
   }
 }
 
-const handleDownload = async (server) => {
+const observe = async () => {
+  await nextTick()
+  obs?.disconnect()
+  if (sentinel.value) obs?.observe(sentinel.value)
+}
+
+const genKey = async t => {
   try {
-    await downloadConfig(server)
-    showToast('Configuration downloaded', 'success')
-  } catch (err) {
-    showToast('Download failed', 'error')
+    const { key } = await api.genKey(t)
+    cfg.setKey(key)
+    ui.modals.value.key = false
+    notif.show('Key generated', 'success')
+  } catch (e) {
+    notif.show(e.status === 401 ? 'Invalid token' : 'Generation failed', 'error')
   }
 }
 
-const handleCopy = async (server) => {
+const applyCfg = c => {
   try {
-    await copyConfig(server)
-    showToast('Configuration copied', 'success')
-  } catch (err) {
-    showToast('Copy failed', 'error')
+    cfg.setKey(c.privateKey)
+    cfg.save(c)
+    ui.modals.value.custom = false
+    notif.show('Settings applied', 'success')
+  } catch (e) {
+    notif.show(e.message, 'error')
   }
 }
 
-const handleShowQrCode = (server) => {
-  handleShowQR(server, () => apiService.generateQR(prepareConfig(server)))
-    .catch(() => showToast('Failed to generate QR code', 'error'))
+const dl = async s => {
+  try { await cfg.dl(s); notif.show('Downloaded', 'success') }
+  catch { notif.show('Download failed', 'error') }
+}
+
+const cp = async s => {
+  try { await cfg.copy(s); notif.show('Copied', 'success') }
+  catch { notif.show('Copy failed', 'error') }
+}
+
+const qr = s => {
+  ui.showQR(s, () => api.genQR(cfg.make(s)))
+    .catch(() => notif.show('QR generation failed', 'error'))
 }
 
 onMounted(async () => {
-  try {
-    window.scrollTo(0, 0)
-    await Promise.all([loadServers(), loadPersistedSettings()])
-
-    observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && !isLoading.value) {
-        loadMoreServers()
-      }
-    }, { rootMargin: '200px' })
-
-    reobserveSentinel()
-    window.addEventListener('scroll', handleUiScroll, { passive: true })
-  } catch (err) {
-    showToast(err.message || 'Unable to load application data', 'error')
-  }
+  window.scrollTo(0, 0)
+  cfg.load()
+  await srv.init()
+  
+  obs = new IntersectionObserver(e => {
+    if (e[0].isIntersecting) srv.loadMore()
+  }, { rootMargin: '200px' })
+  
+  observe()
+  window.addEventListener('scroll', onScroll, { passive: true })
 })
 
 onUnmounted(() => {
-  if (observer) {
-    observer.disconnect()
-    observer = null
-  }
-  window.removeEventListener('scroll', handleUiScroll)
-  cleanupQrCodeUrl()
+  obs?.disconnect()
+  window.removeEventListener('scroll', onScroll)
+  ui.cleanQR()
 })
 
-watch([filterCountry, filterCity], reobserveSentinel)
+watch([srv.fCountry, srv.fCity], observe)
 </script>
 
 <template>
-  <Toast v-if="toast" v-bind="toast" @close="toast = null" />
+  <Toast v-if="notif.toast.value" :msg="notif.toast.value.message" :type="notif.toast.value.type" @close="notif.toast.value = null" />
 
-  <div v-if="showQrCode" class="fixed inset-0 z-50 flex items-center justify-center p-4" @click="showQrCode = false" role="dialog" aria-modal="true">
+  <div v-if="ui.modals.value.qr" class="fixed inset-0 z-[100] flex items-center justify-center p-4" @click="ui.modals.value.qr = false">
     <div class="fixed inset-0 bg-nord-bg-overlay" />
     <div class="relative bg-vscode-bg rounded-lg border border-vscode-active overflow-hidden max-w-sm w-full" @click.stop>
       <div class="bg-nord-bg-overlay-light px-3 py-1.5 text-xs font-medium border-b border-vscode-active flex items-center justify-between text-nord-text-primary">
-        <span>{{ selectedServer?.name }}</span>
-        <button @click="showQrCode = false" class="p-1 rounded border border-transparent hover:bg-nord-bg-hover" aria-label="Close QR code dialog">
-          <Icon name="close" class="w-3.5 h-3.5" />
-        </button>
+        <span>{{ ui.server.value?.dName }}</span>
+        <button @click="ui.modals.value.qr = false" class="p-1 rounded hover:bg-nord-bg-hover"><Icon name="close" class="w-3.5 h-3.5" /></button>
       </div>
       <div class="p-6 flex justify-center">
-        <img :src="qrCodeUrl" :alt="`WireGuard QR Code for ${selectedServer?.name}`" class="w-[200px] h-[200px] rounded">
+        <img :src="ui.qrUrl.value" class="w-[200px] h-[200px] rounded">
       </div>
     </div>
   </div>
 
-  <KeyGenerator v-if="showKeyGenerator" @generate="handleGenerateKey" @cancel="showKeyGenerator = false" />
+  <KeyGenerator v-if="ui.modals.value.key" @generate="genKey" @cancel="ui.modals.value.key = false" />
 
-  <ConfigCustomizer
-    v-if="showCustomizer"
-    :session-private-key="sessionPrivateKey"
-    :persisted-settings="persistedSettings"
-    :default-settings="defaultSettings"
-    @apply="handleApplyConfig"
-    @cancel="showCustomizer = false"
-  />
+  <ConfigCustomizer v-if="ui.modals.value.custom" :session-private-key="cfg.privKey.value" :persisted-settings="cfg.settings.value" :default-settings="cfg.defaults" @apply="applyCfg" @cancel="ui.modals.value.custom = false" />
 
-  <div v-show="isMainViewVisible" class="min-h-screen bg-vscode-bg text-vscode-text">
-    <header class="sticky top-0 z-50 bg-vscode-header border-b border-vscode-active" role="banner">
-      <h1 class="sr-only">NordVPN WireGuard Config Generator</h1>
+  <div v-show="mainView" class="min-h-screen bg-vscode-bg text-vscode-text">
+    <header class="sticky top-0 z-50 bg-vscode-header border-b border-vscode-active">
       <div class="flex flex-col sm:flex-row sm:items-center gap-2 p-2">
-        <nav class="flex items-center gap-2 flex-1" role="navigation" aria-label="Main navigation">
-          <button @click="togglePanel" class="shrink-0 p-2 flex items-center justify-center border border-transparent md:hover:bg-nord-bg-hover rounded-md" aria-label="Toggle navigation menu">
-            <Icon name="menu" class="w-5 h-5" />
-          </button>
-          <div class="flex gap-2 w-full sm:w-auto overflow-hidden" @click="closePanel">
-            <select v-model="filterCountry" class="bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm transition-[width] duration-200 [will-change:width]" :class="{ 'w-full sm:w-[200px]': !filterCountry, 'w-[45%] sm:w-[200px]': filterCountry }" aria-label="Filter by country">
+        <nav class="flex items-center gap-2 flex-1">
+          <button @click="ui.toggle" class="shrink-0 p-2 flex items-center justify-center rounded hover:bg-nord-bg-hover"><Icon name="menu" class="w-5 h-5" /></button>
+          <div class="flex gap-2 w-full sm:w-auto overflow-hidden" @click="ui.close">
+            <select v-model="srv.fCountry.value" class="bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm flex-1 sm:flex-none sm:w-[200px]">
               <option value="">All Countries</option>
-              <option v-for="country in countries" :key="country" :value="country">{{ formatDisplayName(country) }}</option>
+              <option v-for="c in srv.countries.value" :key="c.id" :value="c.id">{{ c.name }}</option>
             </select>
-            <div class="transition-[width,opacity] duration-200 [will-change:width,opacity]" :class="filterCountry ? 'w-[55%] sm:w-[200px] opacity-100' : 'w-0 opacity-0'">
-              <select v-model="filterCity" :disabled="citiesForCountry.length < 2" class="w-full bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:border-nord-text-secondary/30" aria-label="Filter by city">
-                <option v-if="citiesForCountry.length > 1" value="">All Cities</option>
-                <option v-for="city in citiesForCountry" :key="city" :value="city">{{ formatDisplayName(city) }}</option>
+            <div v-if="srv.fCountry.value" class="flex-1 sm:flex-none sm:w-[200px]">
+              <select v-model="srv.fCity.value" :disabled="srv.cities.value.length < 2" class="w-full bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm disabled:opacity-50">
+                <option v-if="srv.cities.value.length > 1" value="">All Cities</option>
+                <option v-for="c in srv.cities.value" :key="c.id" :value="c.id">{{ c.name }}</option>
               </select>
             </div>
           </div>
         </nav>
-        <div class="flex items-center justify-end gap-2 text-xs" @click="closePanel" role="group" aria-label="Sort controls">
-          <button @click="toggleSort('load')" class="flex items-center gap-1 min-w-[80px] px-3 py-1.5 rounded border md:hover:bg-nord-bg-hover font-semibold" :class="sortBy === 'load' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active'" :aria-pressed="sortBy === 'load'">
-            <span>Load</span>
-            <Icon v-if="sortBy === 'load'" :name="sortOrder === 'asc' ? 'sortAsc' : 'sortDesc'" class="w-4 h-4" />
+        <div class="flex items-center justify-end gap-2 text-xs" @click="ui.close">
+          <button @click="srv.toggleSort('load')" class="flex items-center gap-1 min-w-[80px] px-3 py-1.5 rounded border font-semibold transition-colors" :class="srv.sortKey.value === 'load' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active hover:bg-nord-bg-hover'">
+            <span>Load</span><Icon v-if="srv.sortKey.value === 'load'" :name="srv.sortOrd.value === 'asc' ? 'sortAsc' : 'sortDesc'" class="w-4 h-4" />
           </button>
-          <button @click="toggleSort('name')" class="flex items-center gap-1 min-w-[80px] px-3 py-1.5 rounded border md:hover:bg-nord-bg-hover font-semibold" :class="sortBy === 'name' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active'" :aria-pressed="sortBy === 'name'">
-            <span>A-Z</span>
-            <Icon v-if="sortBy === 'name'" :name="sortOrder === 'asc' ? 'sortAsc' : 'sortDesc'" class="w-4 h-4" />
+          <button @click="srv.toggleSort('name')" class="flex items-center gap-1 min-w-[80px] px-3 py-1.5 rounded border font-semibold transition-colors" :class="srv.sortKey.value === 'name' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active hover:bg-nord-bg-hover'">
+            <span>A-Z</span><Icon v-if="srv.sortKey.value === 'name'" :name="srv.sortOrd.value === 'asc' ? 'sortAsc' : 'sortDesc'" class="w-4 h-4" />
           </button>
-          <div class="px-3 py-1.5 rounded bg-vscode-bg/50 border border-vscode-active/50" role="status" aria-live="polite">
-            <span class="text-xs text-nord-text-secondary font-semibold">{{ filteredCount }} servers</span>
-          </div>
+          <div class="px-3 py-1.5 rounded bg-vscode-bg/50 border border-vscode-active/50"><span class="text-xs text-nord-text-secondary font-semibold">{{ srv.total }} servers</span></div>
         </div>
       </div>
     </header>
 
-    <div class="fixed inset-0 bg-nord-bg-overlay/30 z-30 transition-opacity duration-150 [will-change:opacity]" :class="isPanelOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'" @click="closePanel" />
-    <aside class="fixed inset-y-0 left-0 w-64 bg-vscode-header border-r border-vscode-active z-40 transition-transform duration-150 flex flex-col [will-change:transform]" :class="isPanelOpen ? 'translate-x-0' : '-translate-x-full'" role="complementary">
+    <div class="fixed inset-0 bg-nord-bg-overlay/30 z-30 transition-opacity" :class="ui.panel.value ? 'opacity-100' : 'opacity-0 pointer-events-none'" @click="ui.close" />
+    <aside class="fixed inset-y-0 left-0 w-1/2 sm:w-[252px] bg-vscode-header border-r border-vscode-active z-40 transition-transform flex flex-col" :class="ui.panel.value ? 'translate-x-0' : '-translate-x-full'">
       <div class="h-[115px] sm:h-14 bg-vscode-header" />
       <div class="flex-1 overflow-y-auto p-4 space-y-3">
-        <button @click="openCustomizer" class="w-full px-4 py-2 rounded border border-vscode-active bg-nord-bg-overlay/20 text-sm md:hover:bg-nord-bg-hover transition-colors">
-          <div class="flex items-center gap-2">
-            <Icon name="settings" class="w-4 h-4 text-vscode-accent" />
-            <span>Customize Config</span>
-          </div>
-        </button>
-        <button @click="openKeyGenerator" class="w-full px-4 py-2 rounded border border-vscode-active bg-nord-bg-overlay/20 text-sm md:hover:bg-nord-bg-hover transition-colors">
-          <div class="flex items-center gap-2">
-            <Icon name="key" class="w-4 h-4 text-vscode-accent" />
-            <span>Generate Key</span>
-          </div>
-        </button>
-        <label class="flex items-center justify-between cursor-pointer group mt-4">
-          <span class="text-sm font-medium text-nord-text-primary">Show Server IP</span>
-          <button type="button" @click="showServerIp = !showServerIp" class="relative w-10 h-5 rounded-full transition-colors [will-change:background-color]" :class="showServerIp ? 'bg-nord-button-primary' : 'bg-nord-button-secondary'" :aria-pressed="String(showServerIp)" aria-label="Toggle server IP visibility">
-            <span class="absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform [will-change:transform]" :class="{ 'translate-x-[18px]': showServerIp }" />
+        <button @click="ui.openCustom" class="w-full px-2 sm:px-4 py-2 rounded border border-vscode-active bg-nord-bg-overlay/20 text-xs sm:text-sm hover:bg-nord-bg-hover"><div class="flex items-center gap-1.5 sm:gap-2"><Icon name="settings" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-vscode-accent" /><span>Customize</span></div></button>
+        <button @click="ui.openKey" class="w-full px-2 sm:px-4 py-2 rounded border border-vscode-active bg-nord-bg-overlay/20 text-xs sm:text-sm hover:bg-nord-bg-hover"><div class="flex items-center gap-1.5 sm:gap-2"><Icon name="key" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-vscode-accent" /><span>Generate Key</span></div></button>
+        <label class="flex items-center justify-between cursor-pointer group mt-4 select-none">
+          <span class="text-xs sm:text-sm font-medium text-nord-text-primary">Show IP</span>
+          <button type="button" @click="ui.showIp.value = !ui.showIp.value" class="relative w-8 h-4 sm:w-10 sm:h-5 rounded-full transition-colors" :class="ui.showIp.value ? 'bg-nord-button-primary' : 'bg-nord-button-secondary'">
+            <span class="absolute left-0.5 top-0.5 w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-white transition-transform" :class="ui.showIp.value ? 'translate-x-[16px] sm:translate-x-[18px]' : ''" />
           </button>
         </label>
       </div>
       <div class="p-4 space-y-3 border-t border-vscode-active bg-nord-bg-overlay/20">
-        <a href="https://github.com/mustafachyi/NordVPN-WireGuard-Config-Generator" target="_blank" rel="noopener" class="block w-full px-4 py-2 rounded border border-vscode-active bg-nord-bg-overlay/20 text-sm md:hover:bg-nord-bg-hover transition-colors">
-          <div class="flex items-center gap-2">
-            <Icon name="github" class="w-4 h-4 text-vscode-accent" />
-            <span>Star on GitHub</span>
-          </div>
-        </a>
-        <a href="https://refer-nordvpn.com/MXIVDoJGpKT" target="_blank" rel="noopener" class="block w-full px-4 py-2 rounded border border-vscode-active bg-nord-bg-overlay/20 text-sm md:hover:bg-nord-bg-hover transition-colors">
-          <div class="flex items-center gap-2">
-            <Icon name="externalLink" class="w-4 h-4 text-vscode-accent" />
-            <span>Get NordVPN</span>
-          </div>
-        </a>
+        <a href="https://github.com/mustafachyi/NordVPN-WireGuard-Config-Generator" target="_blank" class="block w-full px-2 sm:px-4 py-2 rounded border border-vscode-active bg-nord-bg-overlay/20 text-xs sm:text-sm hover:bg-nord-bg-hover"><div class="flex items-center gap-1.5 sm:gap-2"><Icon name="github" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-vscode-accent" /><span>Star on GitHub</span></div></a>
+        <a href="https://refer-nordvpn.com/MXIVDoJGpKT" target="_blank" class="block w-full px-2 sm:px-4 py-2 rounded border border-vscode-active bg-nord-bg-overlay/20 text-xs sm:text-sm hover:bg-nord-bg-hover"><div class="flex items-center gap-1.5 sm:gap-2"><Icon name="externalLink" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-vscode-accent" /><span>Get NordVPN</span></div></a>
       </div>
     </aside>
 
-    <main class="container mx-auto px-4 py-6" role="main" aria-live="polite">
-      <h2 class="sr-only">Available Servers</h2>
-      <div v-if="visibleServers.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 mx-auto">
-        <ServerCard
-          v-for="server in visibleServers"
-          v-memo="[server, showServerIp]"
-          :key="server.name"
-          :server="server"
-          :show-ip="showServerIp"
-          @download="handleDownload(server)"
-          @copy="handleCopy(server)"
-          @show-qr="handleShowQrCode(server)"
-          @copy-ip="showToast('IP copied', 'success')"
-        />
+    <main class="container mx-auto px-4 py-6">
+      <div v-if="srv.visible.value.length > 0" class="server-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 mx-auto group/grid" :class="{ 'show-ips': ui.showIp.value }">
+        <ServerCard v-for="s in srv.visible.value" v-memo="[s]" :key="s.name" :s="s" @download="dl(s)" @copy="cp(s)" @show-qr="qr(s)" @copy-ip="notif.show('IP copied', 'success')" />
       </div>
-      <div v-else-if="!isLoading" class="text-center py-20">
+      <div v-else-if="!srv.loading.value" class="text-center py-20">
         <Icon name="error" class="w-12 h-12 mx-auto text-nord-text-secondary/50 mb-4" />
-        <p class="text-nord-text-secondary font-medium">{{ emptyStateMessage }}</p>
+        <p class="text-nord-text-secondary font-medium">{{ emptyMsg }}</p>
       </div>
       <div ref="sentinel" class="h-10" />
-      <div v-if="isLoading" class="flex justify-center py-4">
-        <div class="w-6 h-6 border-2 border-vscode-accent border-t-transparent rounded-full animate-spin" />
-      </div>
+      <div v-if="srv.loading.value" class="flex justify-center py-4"><div class="w-6 h-6 border-2 border-vscode-accent border-t-transparent rounded-full animate-spin" /></div>
     </main>
 
-    <button v-show="showScrollTopButton" @click="scrollToTop" class="fixed bottom-4 right-4 p-2 rounded-full bg-vscode-header/90 border border-vscode-accent z-50 hover:bg-vscode-header" aria-label="Scroll to top">
-      <Icon name="arrowUp" class="w-5 h-5" />
-    </button>
+    <button v-show="ui.topBtn.value" @click="ui.top" class="fixed bottom-4 right-4 p-2 rounded-full bg-vscode-header/90 border border-vscode-accent z-50 hover:bg-vscode-header"><Icon name="arrowUp" class="w-5 h-5" /></button>
   </div>
 </template>

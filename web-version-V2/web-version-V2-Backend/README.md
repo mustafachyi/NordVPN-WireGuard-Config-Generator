@@ -1,60 +1,55 @@
-# NordVPN WireGuard Configuration Backend
+# NordGen Backend
 
-This project provides a high-performance backend service, built with Bun and Hono, for generating NordVPN WireGuard configurations.
+A minimalist, high-performance backend service for generating NordVPN WireGuard configurations. Built on the Bun runtime and the Hono framework, this service handles server data caching, credential exchange, and configuration generation.
 
-## Features
+## Overview
 
--   **Dynamic Server List**: Fetches and caches the latest server list from the NordVPN API.
--   **Key Generation**: Securely exchanges a NordVPN token for a WireGuard private key.
--   **Configuration Generation**: Creates customized WireGuard `.conf` files.
--   **Multiple Output Formats**: Delivers configurations as plain text, a downloadable file, or a QR code image.
--   **High Performance**: Utilizes Bun's speed, brotli compression, and efficient caching with background updates.
+This application serves as the API layer for the NordGen project. It interfaces directly with NordVPN's infrastructure to retrieve server lists and exchange authentication tokens for WireGuard private keys. It provides endpoints to generate configuration files in text, file, or QR code formats.
+
+## Prerequisites
+
+- Bun (latest version recommended)
+- Node.js (optional, only if specific tooling requires it)
 
 ## Installation
 
-Ensure you have [Bun](https://bun.sh/) installed.
+Install the project dependencies:
 
 ```bash
 bun install
 ```
 
-## Usage
+## Development
 
-### Development
-
-To run the server in development mode with live-reloading:
+Start the development server with file watching enabled:
 
 ```bash
 bun run dev
 ```
 
-### Production
+The server listens on port 3000 by default.
 
-To build and run the server for production:
+## Production
+
+To build and run the optimized production server:
 
 ```bash
+bun run build
 bun start
 ```
 
-The server will be available at `http://localhost:3000`.
+The build process bundles the application into a single file located in the `dist` directory.
 
-## Testing
+## Architecture
 
-The project includes a comprehensive test suite using Bun's built-in test runner.
+- **Core Store**: Maintains an in-memory cache of NordVPN servers, refreshed every 5 minutes. It also handles static asset serving with pre-compressed Brotli support.
+- **Validation**: Strict input validation ensures all data sent to upstream APIs or used in configuration generation is sanitized.
+- **Performance**: Uses Hono's lightweight routing, aggressive caching headers (ETag), and Bun's native speed.
 
-### Running Tests
+## Static Assets
 
-```bash
-# Run the full test suite once
-bun test
+The server looks for a `./public` directory to serve static frontend files. If an `index.html` is present, it is served for the root path and any unknown routes (SPA fallback), with the server data injected directly into the HTML to prevent an initial round-trip fetch.
 
-# Run tests in watch mode
-bun test:watch
+## API Documentation
 
-# Generate a test coverage report
-bun test:coverage
-```
-
-## API
-
-For detailed endpoint specifications, request/response formats, and validation rules, see the official [API Documentation](API.md).
+For detailed endpoint specifications, request/response formats, and validation rules, please refer to the [API.md](./API.md)

@@ -1,85 +1,41 @@
-import { ref, toRefs, watch } from 'vue'
-import { storageService } from '@/services/storageService'
-
-const PANEL_TOGGLE_DEBOUNCE_MS = 200
-const SMOOTH_SCROLL_OPTIONS = { top: 0, behavior: 'smooth' }
-const MODAL_TYPES = {
-  CUSTOMIZER: 'showCustomizer',
-  KEY_GENERATOR: 'showKeyGenerator',
-  QR_CODE: 'showQrCode'
-}
+import { reactive, toRefs, watch } from 'vue'
+import { storage } from '@/services/storageService'
 
 export function useUI() {
-  const isServerIpVisibleOnLoad = storageService.get('showServerIp') === true
-  const state = ref({
-    isPanelOpen: false,
-    isPanelToggleDebouncing: false,
-    showScrollTopButton: false,
-    showServerIp: isServerIpVisibleOnLoad,
-    [MODAL_TYPES.CUSTOMIZER]: false,
-    [MODAL_TYPES.KEY_GENERATOR]: false,
-    [MODAL_TYPES.QR_CODE]: false,
-    qrCodeUrl: '',
-    selectedServer: null
+  const state = reactive({
+    panel: false,
+    topBtn: false,
+    showIp: storage.get('showIp') === true,
+    modals: { custom: false, key: false, qr: false },
+    qrUrl: '',
+    server: null
   })
 
-  const stateAsRefs = toRefs(state.value)
+  watch(() => state.showIp, v => storage.set('showIp', v))
 
-  watch(stateAsRefs.showServerIp, (isNowVisible) => {
-    storageService.set('showServerIp', isNowVisible)
-  })
-
-  const closePanel = () => {
-    if (state.value.isPanelOpen) {
-      state.value.isPanelOpen = false
-    }
-  }
-
-  const togglePanel = () => {
-    if (state.value.isPanelToggleDebouncing) return
-    state.value.isPanelToggleDebouncing = true
-    state.value.isPanelOpen = !state.value.isPanelOpen
-    setTimeout(() => {
-      state.value.isPanelToggleDebouncing = false
-    }, PANEL_TOGGLE_DEBOUNCE_MS)
-  }
-
-  const openModal = (modalType) => {
-    closePanel()
-    Object.values(MODAL_TYPES).forEach(modal => {
-      state.value[modal] = modal === modalType
-    })
-  }
-
-  const handleShowQR = async (server, qrCodeGenerator) => {
-    try {
-      state.value.selectedServer = server
-      if (state.value.qrCodeUrl) {
-        URL.revokeObjectURL(state.value.qrCodeUrl)
-      }
-      const qrBlob = await qrCodeGenerator()
-      state.value.qrCodeUrl = URL.createObjectURL(qrBlob)
-      openModal(MODAL_TYPES.QR_CODE)
-    } catch (err) {
-      state.value[MODAL_TYPES.QR_CODE] = false
-      throw err
-    }
-  }
-
-  const cleanupQrCodeUrl = () => {
-    if (state.value.qrCodeUrl) {
-      URL.revokeObjectURL(state.value.qrCodeUrl)
-    }
-  }
+  const close = () => state.panel = false
+  const open = m => { close(); Object.keys(state.modals).forEach(k => state.modals[k] = k === m) }
+  
+  const cleanQR = () => { if (state.qrUrl) URL.revokeObjectURL(state.qrUrl) }
 
   return {
-    ...stateAsRefs,
-    closePanel,
-    togglePanel,
-    scrollToTop: () => window.scrollTo(SMOOTH_SCROLL_OPTIONS),
-    openCustomizer: () => openModal(MODAL_TYPES.CUSTOMIZER),
-    openKeyGenerator: () => openModal(MODAL_TYPES.KEY_GENERATOR),
-    handleShowQR,
-    cleanupQrCodeUrl
+    ...toRefs(state),
+    close,
+    toggle: () => state.panel = !state.panel,
+    top: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
+    openCustom: () => open('custom'),
+    openKey: () => open('key'),
+    cleanQR,
+    showQR: async (s, fn) => {
+      state.server = s
+      cleanQR()
+      try {
+        state.qrUrl = URL.createObjectURL(await fn())
+        open('qr')
+      } catch (e) {
+        state.modals.qr = false
+        throw e
+      }
+    }
   }
 }

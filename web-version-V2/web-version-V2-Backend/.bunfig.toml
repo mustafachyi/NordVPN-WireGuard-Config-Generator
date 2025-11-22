@@ -1,6 +1,0 @@
-[test]
-pattern = "**/*.test.ts"
-timeout = 5000
-
-[test.env]
-NODE_ENV = "test"

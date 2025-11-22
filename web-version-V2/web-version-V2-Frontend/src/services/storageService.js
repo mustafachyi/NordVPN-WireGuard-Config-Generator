@@ -1,36 +1,12 @@
-const ALLOWED_STORAGE_KEYS = [
-  'wg_gen_settings',
-  'showServerIp',
-];
+const KEYS = ['wg_gen_settings', 'showIp']
 
-export const storageService = {
-  get(key) {
-    const item = localStorage.getItem(key);
-    if (!item) {
-      return null;
-    }
+export const storage = {
+  get: k => {
     try {
-      return JSON.parse(item);
-    } catch {
-      localStorage.removeItem(key);
-      return null;
-    }
+      const i = localStorage.getItem(k)
+      return i ? JSON.parse(i) : null
+    } catch { return null }
   },
-
-  set(key, value) {
-    localStorage.setItem(key, JSON.stringify(value));
-  },
-
-  remove(key) {
-    localStorage.removeItem(key);
-  },
-
-  cleanup() {
-    const currentKeys = Object.keys(localStorage);
-    for (const key of currentKeys) {
-      if (!ALLOWED_STORAGE_KEYS.includes(key)) {
-        localStorage.removeItem(key);
-      }
-    }
-  },
-};
+  set: (k, v) => localStorage.setItem(k, JSON.stringify(v)),
+  clean: () => Object.keys(localStorage).forEach(k => { if (!KEYS.includes(k)) localStorage.removeItem(k) })
+}
