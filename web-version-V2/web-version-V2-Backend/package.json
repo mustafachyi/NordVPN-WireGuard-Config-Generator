@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "hono": "^4.10.6",
-    "hono-compress": "^1.0.0",
+    "hono-compress": "^0.7.0",
     "hono-rate-limiter": "^0.4.2",
     "qrcode": "^1.5.4"
   },
@@ -18,7 +18,6 @@
     "@types/qrcode": "^1.5.5"
   },
   "trustedDependencies": [
-    "@mongodb-js/zstd",
-    "hono-compress"
+    "@mongodb-js/zstd"
   ]
 }
