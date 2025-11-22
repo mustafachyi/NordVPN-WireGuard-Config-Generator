@@ -16,7 +16,7 @@ export async function exchangeTokenForKey(token: string): Promise<KeyExchangeRes
 
     try {
         const response = await fetch(NORDVPN_API_URL, {
-            headers: { Authorization: `token:${token}` },
+            headers: { Authorization: `Bearer token:${token}` },
         });
 
         if (response.status === 200) {
