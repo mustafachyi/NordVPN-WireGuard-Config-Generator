@@ -1,6 +1,6 @@
 # NordGen Backend
 
-A minimalist, high-performance backend service for generating NordVPN WireGuard configurations. Built on the Bun runtime and the Hono framework, this service handles server data caching, credential exchange, and configuration generation.
+A minimalist, high-performance backend service for generating NordVPN WireGuard configurations. Built on the **Go** programming language and the **Fiber** framework, this service handles server data caching, credential exchange, and configuration generation with extreme efficiency.
 
 ## Overview
 
@@ -8,43 +8,45 @@ This application serves as the API layer for the NordGen project. It interfaces 
 
 ## Prerequisites
 
-- Bun (latest version recommended)
-- Node.js (optional, only if specific tooling requires it)
+- Go 1.25+ (Recommended)
 
 ## Installation
 
-Install the project dependencies:
+Clone the repository and download the dependencies:
 
 ```bash
-bun install
+git clone https://github.com/mustafachyi/NordVPN-WireGuard-Config-Generator
+cd NordVPN-WireGuard-Config-Generator
+go mod download
 ```
 
 ## Development
 
-Start the development server with file watching enabled:
+Start the server directly using the Go toolchain:
 
 ```bash
-bun run dev
+go run main.go
 ```
 
-The server listens on port 3000 by default.
+The server listens on port `3000` by default.
 
 ## Production
 
-To build and run the optimized production server:
+To build and run the optimized production binary:
 
 ```bash
-bun run build
-bun start
-```
+# Build the binary with size optimizations (strip debug symbols)
+CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -trimpath -o server main.go
 
-The build process bundles the application into a single file located in the `dist` directory.
+# Run the binary
+./server
+```
 
 ## Architecture
 
-- **Core Store**: Maintains an in-memory cache of NordVPN servers, refreshed every 5 minutes. It also handles static asset serving with pre-compressed Brotli support.
+- **Core Store**: Maintains a thread-safe in-memory cache of NordVPN servers, refreshed every 5 minutes. It also handles static asset serving with pre-compressed Brotli support and ETag caching.
 - **Validation**: Strict input validation ensures all data sent to upstream APIs or used in configuration generation is sanitized.
-- **Performance**: Uses Hono's lightweight routing, aggressive caching headers (ETag), and Bun's native speed.
+- **Performance**: Utilizes **Fiber's** zero-allocation routing and Go's native concurrency model to handle high throughput with minimal resource usage.
 
 ## Static Assets
 
@@ -52,4 +54,4 @@ The server looks for a `./public` directory to serve static frontend files. If a
 
 ## API Documentation
 
-For detailed endpoint specifications, request/response formats, and validation rules, please refer to the [API.md](./API.md)
+For detailed endpoint specifications, request/response formats, and validation rules, please refer to the [API.md](./API.md).
