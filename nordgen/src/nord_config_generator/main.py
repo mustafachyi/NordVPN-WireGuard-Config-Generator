@@ -3,7 +3,6 @@ import os
 import asyncio
 import json
 import base64
-import re
 import time
 from typing import List, Tuple, Optional, Dict, Any
 from dataclasses import dataclass
@@ -70,7 +69,7 @@ class NordVpnApiClient:
 
     async def get_all_servers(self) -> List[Dict[str, Any]]:
         url = f"{self.NORD_API_BASE_URL}/servers"
-        params = {'limit': 9000, 'filters[servers_technologies][identifier]': 'wireguard_udp'}
+        params = {'limit': 16384, 'filters[servers_technologies][identifier]': 'wireguard_udp'}
         data = await self._get(url, params=params)
         return data if isinstance(data, list) else []
 
@@ -98,6 +97,7 @@ class NordVpnApiClient:
 
 class ConfigurationOrchestrator:
     CONCURRENT_LIMIT = 200
+    _path_sanitizer = str.maketrans('', '', '<>:"/\\|?*\0')
 
     def __init__(self, private_key: str, preferences: UserPreferences, console_manager: ConsoleManager, api_client: NordVpnApiClient):
         self._private_key = private_key
@@ -114,6 +114,12 @@ class ConfigurationOrchestrator:
             return None
 
         processed_servers = await self._process_server_data(all_servers_data, user_location)
+        
+        unique_servers = {}
+        for s in processed_servers:
+            if s.name not in unique_servers:
+                unique_servers[s.name] = s
+        processed_servers = list(unique_servers.values())
         
         sorted_servers = sorted(processed_servers, key=lambda s: (s.load, s.distance))
         best_servers_by_location = self._get_best_servers(sorted_servers)
@@ -159,6 +165,8 @@ class ConfigurationOrchestrator:
         return info
 
     async def _save_all_configurations(self, sorted_servers: List[Server], best_servers: Dict, servers_info: Dict):
+        used_paths: Dict[str, int] = {}
+        
         with self._console.create_progress_bar(transient=False) as progress:
             self.stats.total_configs = len(sorted_servers)
             self.stats.best_configs = len(best_servers)
@@ -166,18 +174,46 @@ class ConfigurationOrchestrator:
             task_all = progress.add_task("Generating standard configs...", total=self.stats.total_configs)
             task_best = progress.add_task("Generating optimized configs...", total=self.stats.best_configs)
             
-            save_tasks = [self._create_save_task(s, 'configs', progress, task_all) for s in sorted_servers]
-            save_tasks.extend([self._create_save_task(s, 'best_configs', progress, task_best) for s in best_servers.values()])
+            save_tasks = []
+            save_tasks.extend(self._create_batch_save_tasks(sorted_servers, 'configs', progress, task_all, used_paths))
+            save_tasks.extend(self._create_batch_save_tasks(list(best_servers.values()), 'best_configs', progress, task_best, used_paths))
             
             await asyncio.gather(*save_tasks)
             async with aiofiles.open(self._output_dir / 'servers.json', 'w') as f:
                 await f.write(json.dumps(servers_info, indent=2, separators=(',', ':'), ensure_ascii=False))
 
-    def _create_save_task(self, server: Server, subfolder: str, progress, task_id):
-        config_str = self._generate_wireguard_config_string(server, self._preferences, self._private_key)
-        path = self._output_dir / subfolder / self._sanitize_path_part(server.country) / self._sanitize_path_part(server.city)
-        filename = self._generate_compliant_filename(server)
-        return self._save_config_file(config_str, path, filename, progress, task_id)
+    def _create_batch_save_tasks(self, servers: List[Server], subfolder: str, progress, task_id, used_paths: Dict[str, int]):
+        tasks = []
+        for server in servers:
+            country_clean = self._sanitize_path_part(server.country)
+            city_clean = self._sanitize_path_part(server.city)
+            dir_path = self._output_dir / subfolder / country_clean / city_clean
+            
+            base_filename = self._extract_base_filename(server)
+            rel_path = f"{subfolder}/{country_clean}/{city_clean}/{base_filename}"
+            
+            if rel_path in used_paths:
+                idx = used_paths[rel_path]
+                if idx == 0: idx = 1
+                
+                base_path_no_ext = rel_path[:-5]
+                base_name_no_ext = base_filename[:-5]
+                
+                while True:
+                    new_rel = f"{base_path_no_ext}_{idx}.conf"
+                    if new_rel not in used_paths:
+                        used_paths[rel_path] = idx + 1
+                        used_paths[new_rel] = 0
+                        filename = f"{base_name_no_ext}_{idx}.conf"
+                        break
+                    idx += 1
+            else:
+                filename = base_filename
+                used_paths[rel_path] = 0
+
+            config_str = self._generate_wireguard_config_string(server, self._preferences, self._private_key)
+            tasks.append(self._save_config_file(config_str, dir_path, filename, progress, task_id))
+        return tasks
 
     async def _save_config_file(self, config_string: str, path: Path, filename: str, progress, task_id):
         path.mkdir(parents=True, exist_ok=True)
@@ -187,15 +223,23 @@ class ConfigurationOrchestrator:
         progress.update(task_id, advance=1)
 
     @staticmethod
-    def _generate_compliant_filename(server: Server) -> str:
-        server_number_match = re.search(r'\d+$', server.name)
-        if not server_number_match:
-            fallback_name = f"wg{server.station.replace('.', '')}"
-            return f"{fallback_name[:15]}.conf"
+    def _extract_base_filename(server: Server) -> str:
+        s = server.name
+        num = ""
+        for i in range(len(s) - 1, -1, -1):
+            if s[i].isdigit():
+                start = i
+                while start >= 0 and s[start].isdigit():
+                    start -= 1
+                num = s[start+1 : i+1]
+                break
         
-        server_number = server_number_match.group(0)
-        base_name = f"{server.country_code}{server_number}"
-        return f"{base_name[:15]}.conf"
+        if not num:
+            fallback = f"wg{server.station.replace('.', '')}"
+            return f"{fallback[:15]}.conf"
+        
+        base = f"{server.country_code}{num}"
+        return f"{base[:15]}.conf"
 
     @staticmethod
     def _generate_wireguard_config_string(server: Server, preferences: UserPreferences, private_key: str) -> str:
@@ -236,9 +280,9 @@ class ConfigurationOrchestrator:
         c = 2 * asin(sqrt(a))
         return c * 6371
 
-    @staticmethod
-    def _sanitize_path_part(part: str) -> str:
-        return re.sub(r'[<>:"/\\|?*\0]', '', part.lower().replace(' ', '_')).replace('#', '')
+    @classmethod
+    def _sanitize_path_part(cls, part: str) -> str:
+        return part.lower().replace(' ', '_').replace('#', '').translate(cls._path_sanitizer)
 
 class Application:
     def __init__(self):
@@ -291,22 +335,29 @@ class Application:
         user_input = self._console.get_preferences(defaults)
 
         dns_input = user_input.get("dns")
-        dns = dns_input if dns_input and re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', dns_input) else defaults.dns
-
+        if dns_input:
+            parts = dns_input.split('.')
+            if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+                defaults.dns = dns_input
+        
         use_ip = user_input.get("endpoint_type", "").lower() == 'y'
 
-        keepalive = defaults.persistent_keepalive
         keepalive_input = user_input.get("keepalive")
         if keepalive_input and keepalive_input.isdigit():
             keepalive_val = int(keepalive_input)
             if 15 <= keepalive_val <= 120:
-                keepalive = keepalive_val
+                defaults.persistent_keepalive = keepalive_val
         
-        return UserPreferences(dns=dns, use_ip_for_endpoint=use_ip, persistent_keepalive=keepalive)
+        return UserPreferences(
+            dns=defaults.dns,
+            use_ip_for_endpoint=use_ip,
+            persistent_keepalive=defaults.persistent_keepalive
+        )
 
     async def _get_validated_private_key(self, api_client: NordVpnApiClient) -> Optional[str]:
         token = self._console.get_user_input("Please enter your NordVPN access token: ", is_secret=True)
-        if not re.match(r'^[a-fA-F0-9]{64}$', token):
+        is_hex = len(token) == 64 and all(c in '0123456789abcdefABCDEF' for c in token)
+        if not is_hex:
             self._console.print_message("error", "Invalid token format.")
             return None
         
