@@ -1,6 +1,6 @@
 const BASE = '/api'
-const TIMEOUT = 10000
-const MIME = { json: 'application/json', wg: 'application/x-wireguard-config', img: 'image/' }
+const TIMEOUT = 60000
+const MIME = { json: 'application/json', wg: 'application/x-wireguard-config', img: 'image/', zip: 'application/zip', bin: 'application/octet-stream' }
 
 async function req(end, opt = {}) {
   const c = new AbortController()
@@ -17,7 +17,7 @@ async function req(end, opt = {}) {
       throw e
     }
     const t = r.headers.get('content-type') || ''
-    if (t.includes(MIME.wg) || t.startsWith(MIME.img)) return r
+    if (t.includes(MIME.wg) || t.startsWith(MIME.img) || t.includes(MIME.zip) || t.includes(MIME.bin)) return r
     return t.includes(MIME.json) ? r.json() : r.text()
   } catch (e) {
     throw e.name === 'AbortError' ? new Error('Request timeout') : e
@@ -37,6 +37,17 @@ export const api = {
     })
     const m = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '')
     return { blob: await r.blob(), name: m?.[1] || null }
+  },
+  dlBatch: async data => {
+    const r = await req('/config/batch', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      headers: { 'Accept': MIME.bin }
+    })
+    const m = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '')
+    let name = m?.[1] || 'NordVPN_Configs.zip'
+    if (name.endsWith('.nord')) name = name.replace('.nord', '.zip')
+    return { blob: await r.blob(), name }
   },
   genQR: async data => {
     const r = await req('/config/qr', {

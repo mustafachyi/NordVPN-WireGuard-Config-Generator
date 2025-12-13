@@ -17,11 +17,16 @@ const ui = useUI()
 const notif = useToast()
 
 const sentinel = ref(null)
+const headerRef = ref(null)
+const headerHeight = ref(0)
+const dlLoading = ref(false)
 let obs = null
+let ro = null
 let ticking = false
 
 const mainView = computed(() => !ui.modals.value.key && !ui.modals.value.custom)
 const emptyMsg = computed(() => srv.fCountry.value ? 'No servers match criteria.' : 'No servers loaded.')
+const dlLabel = computed(() => dlLoading.value ? 'Processing...' : srv.fCity.value ? 'Download City' : srv.fCountry.value ? 'Download Country' : 'Download All')
 
 const onScroll = () => {
   if (!ticking) {
@@ -66,6 +71,20 @@ const dl = async s => {
   catch { notif.show('Download failed', 'error') }
 }
 
+const dlBatch = async () => {
+  if (dlLoading.value) return
+  dlLoading.value = true
+  notif.show('Compressing...', 'success')
+  try {
+    await cfg.dlBatch({ country: srv.fCountry.value, city: srv.fCity.value })
+    notif.show('Download started', 'success')
+  } catch {
+    notif.show('Batch download failed', 'error')
+  } finally {
+    dlLoading.value = false
+  }
+}
+
 const cp = async s => {
   try { await cfg.copy(s); notif.show('Copied', 'success') }
   catch { notif.show('Copy failed', 'error') }
@@ -85,12 +104,18 @@ onMounted(async () => {
     if (e[0].isIntersecting) srv.loadMore()
   }, { rootMargin: '200px' })
   
+  ro = new ResizeObserver(() => {
+    headerHeight.value = headerRef.value?.offsetHeight || 0
+  })
+  if (headerRef.value) ro.observe(headerRef.value)
+  
   observe()
   window.addEventListener('scroll', onScroll, { passive: true })
 })
 
 onUnmounted(() => {
   obs?.disconnect()
+  ro?.disconnect()
   window.removeEventListener('scroll', onScroll)
   ui.cleanQR()
 })
@@ -119,16 +144,16 @@ watch([srv.fCountry, srv.fCity], observe)
   <ConfigCustomizer v-if="ui.modals.value.custom" :session-private-key="cfg.privKey.value" :persisted-settings="cfg.settings.value" :default-settings="cfg.defaults" @apply="applyCfg" @cancel="ui.modals.value.custom = false" />
 
   <div v-show="mainView" class="min-h-screen bg-vscode-bg text-vscode-text">
-    <header class="sticky top-0 z-50 bg-vscode-header border-b border-vscode-active">
+    <header ref="headerRef" class="sticky top-0 z-50 bg-vscode-header border-b border-vscode-active">
       <div class="flex flex-col sm:flex-row sm:items-center gap-2 p-2">
         <nav class="flex items-center gap-2 flex-1">
           <button @click="ui.toggle" class="shrink-0 p-2 flex items-center justify-center rounded hover:bg-nord-bg-hover"><Icon name="menu" class="w-5 h-5" /></button>
-          <div class="flex gap-2 w-full sm:w-auto overflow-hidden" @click="ui.close">
-            <select v-model="srv.fCountry.value" class="bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm flex-1 sm:flex-none sm:w-[200px]">
+          <div class="flex-1 flex gap-2" @click="ui.close">
+            <select v-model="srv.fCountry.value" class="w-full bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm sm:w-[200px]">
               <option value="">All Countries</option>
               <option v-for="c in srv.countries.value" :key="c.id" :value="c.id">{{ c.name }}</option>
             </select>
-            <div v-if="srv.fCountry.value" class="flex-1 sm:flex-none sm:w-[200px]">
+            <div v-if="srv.fCountry.value" class="w-full sm:w-[200px]">
               <select v-model="srv.fCity.value" :disabled="srv.cities.value.length < 2" class="w-full bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm disabled:opacity-50">
                 <option v-if="srv.cities.value.length > 1" value="">All Cities</option>
                 <option v-for="c in srv.cities.value" :key="c.id" :value="c.id">{{ c.name }}</option>
@@ -136,21 +161,28 @@ watch([srv.fCountry, srv.fCity], observe)
             </div>
           </div>
         </nav>
-        <div class="flex items-center justify-end gap-2 text-xs" @click="ui.close">
-          <button @click="srv.toggleSort('load')" class="flex items-center gap-1 min-w-[80px] px-3 py-1.5 rounded border font-semibold transition-colors" :class="srv.sortKey.value === 'load' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active hover:bg-nord-bg-hover'">
-            <span>Load</span><Icon v-if="srv.sortKey.value === 'load'" :name="srv.sortOrd.value === 'asc' ? 'sortAsc' : 'sortDesc'" class="w-4 h-4" />
-          </button>
-          <button @click="srv.toggleSort('name')" class="flex items-center gap-1 min-w-[80px] px-3 py-1.5 rounded border font-semibold transition-colors" :class="srv.sortKey.value === 'name' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active hover:bg-nord-bg-hover'">
-            <span>A-Z</span><Icon v-if="srv.sortKey.value === 'name'" :name="srv.sortOrd.value === 'asc' ? 'sortAsc' : 'sortDesc'" class="w-4 h-4" />
-          </button>
-          <div class="px-3 py-1.5 rounded bg-vscode-bg/50 border border-vscode-active/50"><span class="text-xs text-nord-text-secondary font-semibold">{{ srv.total }} servers</span></div>
+        <div class="sm:pl-0 pl-[calc(2.25rem+0.5rem)]">
+          <div class="flex flex-wrap items-center justify-end gap-2 text-xs" @click="ui.close">
+            <button @click="dlBatch" :disabled="dlLoading" class="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-1.5 rounded bg-nord-button-primary text-white font-semibold hover:bg-nord-button-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+              <div v-if="dlLoading" class="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              <Icon v-else name="archive" class="w-4 h-4" />
+              <span class="whitespace-nowrap">{{ dlLabel }}</span>
+            </button>
+            <button @click="srv.toggleSort('load')" class="flex-1 sm:flex-none flex items-center justify-center gap-1 sm:min-w-[80px] px-2 sm:px-3 py-1.5 rounded border font-semibold transition-colors" :class="srv.sortKey.value === 'load' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active hover:bg-nord-bg-hover'">
+              <span>Load</span><Icon v-if="srv.sortKey.value === 'load'" :name="srv.sortOrd.value === 'asc' ? 'sortAsc' : 'sortDesc'" class="w-4 h-4" />
+            </button>
+            <button @click="srv.toggleSort('name')" class="flex-1 sm:flex-none flex items-center justify-center gap-1 sm:min-w-[80px] px-2 sm:px-3 py-1.5 rounded border font-semibold transition-colors" :class="srv.sortKey.value === 'name' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active hover:bg-nord-bg-hover'">
+              <span>A-Z</span><Icon v-if="srv.sortKey.value === 'name'" :name="srv.sortOrd.value === 'asc' ? 'sortAsc' : 'sortDesc'" class="w-4 h-4" />
+            </button>
+            <div class="px-3 py-1.5 rounded bg-vscode-bg/50 border border-vscode-active/50"><span class="text-xs text-nord-text-secondary font-semibold">{{ srv.total }}</span></div>
+          </div>
         </div>
       </div>
     </header>
 
     <div class="fixed inset-0 bg-nord-bg-overlay/30 z-30 transition-opacity" :class="ui.panel.value ? 'opacity-100' : 'opacity-0 pointer-events-none'" @click="ui.close" />
     <aside class="fixed inset-y-0 left-0 w-1/2 sm:w-[252px] bg-vscode-header border-r border-vscode-active z-40 transition-transform flex flex-col" :class="ui.panel.value ? 'translate-x-0' : '-translate-x-full'">
-      <div class="h-[115px] sm:h-14 bg-vscode-header" />
+      <div :style="{ height: headerHeight + 'px' }" class="shrink-0 bg-vscode-header transition-[height]" />
       <div class="flex-1 overflow-y-auto p-4 space-y-3">
         <button @click="ui.openCustom" class="w-full px-2 sm:px-4 py-2 rounded border border-vscode-active bg-nord-bg-overlay/20 text-xs sm:text-sm hover:bg-nord-bg-hover"><div class="flex items-center gap-1.5 sm:gap-2"><Icon name="settings" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-vscode-accent" /><span>Customize</span></div></button>
         <button @click="ui.openKey" class="w-full px-2 sm:px-4 py-2 rounded border border-vscode-active bg-nord-bg-overlay/20 text-xs sm:text-sm hover:bg-nord-bg-hover"><div class="flex items-center gap-1.5 sm:gap-2"><Icon name="key" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-vscode-accent" /><span>Generate Key</span></div></button>

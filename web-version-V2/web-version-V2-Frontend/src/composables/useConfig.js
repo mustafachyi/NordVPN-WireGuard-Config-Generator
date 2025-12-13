@@ -44,14 +44,31 @@ export function useConfig() {
     keepalive: settings.value.keepalive
   })
 
-  const dl = async s => {
-    const { blob, name } = await api.dlConfig(make(s))
+  const saveBlob = (blob, name) => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = name || `${s.name}.conf`
+    a.download = name
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const dl = async s => {
+    const { blob, name } = await api.dlConfig(make(s))
+    saveBlob(blob, name || `${s.name}.conf`)
+  }
+
+  const dlBatch = async (filters = {}) => {
+    const body = {
+      privateKey: privKey.value,
+      dns: settings.value.dns,
+      endpoint: settings.value.endpoint,
+      keepalive: settings.value.keepalive,
+      country: filters.country || '',
+      city: filters.city || ''
+    }
+    const { blob, name } = await api.dlBatch(body)
+    saveBlob(blob, name)
   }
 
   return {
@@ -62,6 +79,7 @@ export function useConfig() {
     save,
     setKey: k => { if (Validators.Key.valid(k)) privKey.value = k; else throw new Error(Validators.Key.err) },
     dl,
+    dlBatch,
     copy: async s => navigator.clipboard.writeText(await api.genConfig(make(s))),
     make
   }
