@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,9 +22,10 @@ import (
 )
 
 var (
-	rxToken    = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
-	rxKey      = regexp.MustCompile(`^[A-Za-z0-9+/]{43}=$`)
-	rxIPv4     = regexp.MustCompile(`^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$`)
+	rxToken = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
+	rxKey   = regexp.MustCompile(`^[A-Za-z0-9+/]{43}=$`)
+	rxIPv4  = regexp.MustCompile(`^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$`)
+
 	httpClient = &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
@@ -33,24 +36,15 @@ var (
 	}
 )
 
-func validateConfig(b types.ConfigRequest) (types.ValidatedConfig, string) {
+func parseCommon(key, dns, endpoint string, keepAlive *int) (types.ValidatedConfig, []string) {
 	var errs []string
-	if b.Country == "" {
-		errs = append(errs, "Missing country")
-	}
-	if b.City == "" {
-		errs = append(errs, "Missing city")
-	}
-	if b.Name == "" {
-		errs = append(errs, "Missing name")
-	}
-	if b.PrivateKey != "" && !rxKey.MatchString(b.PrivateKey) {
+	if key != "" && !rxKey.MatchString(key) {
 		errs = append(errs, "Invalid Private Key")
 	}
 
 	cleanDns := "103.86.96.100"
-	if b.DNS != "" {
-		parts := strings.Split(b.DNS, ",")
+	if dns != "" {
+		parts := strings.Split(dns, ",")
 		valid := true
 		for _, p := range parts {
 			if !rxIPv4.MatchString(strings.TrimSpace(p)) {
@@ -61,34 +55,89 @@ func validateConfig(b types.ConfigRequest) (types.ValidatedConfig, string) {
 		if !valid {
 			errs = append(errs, "Invalid DNS IP")
 		} else {
-			cleanDns = b.DNS
+			cleanDns = dns
 		}
 	}
 
-	if b.Endpoint != "" && b.Endpoint != "hostname" && b.Endpoint != "station" {
+	if endpoint != "" && endpoint != "hostname" && endpoint != "station" {
 		errs = append(errs, "Invalid endpoint type")
 	}
 
 	ka := 25
-	if b.KeepAlive != nil {
-		if *b.KeepAlive < 15 || *b.KeepAlive > 120 {
+	if keepAlive != nil {
+		if *keepAlive < 15 || *keepAlive > 120 {
 			errs = append(errs, "Invalid keepalive")
 		} else {
-			ka = *b.KeepAlive
+			ka = *keepAlive
 		}
 	}
 
+	return types.ValidatedConfig{
+		PrivateKey: key,
+		DNS:        cleanDns,
+		UseStation: endpoint == "station",
+		KeepAlive:  ka,
+	}, errs
+}
+
+func validateConfig(b types.ConfigRequest) (types.ValidatedConfig, string) {
+	cfg, errs := parseCommon(b.PrivateKey, b.DNS, b.Endpoint, b.KeepAlive)
+
+	if b.Country == "" {
+		errs = append(errs, "Missing country")
+	}
+	if b.City == "" {
+		errs = append(errs, "Missing city")
+	}
+	if b.Name == "" {
+		errs = append(errs, "Missing name")
+	}
+
+	cfg.Name = b.Name
 	if len(errs) > 0 {
 		return types.ValidatedConfig{}, strings.Join(errs, ", ")
 	}
+	return cfg, ""
+}
 
-	return types.ValidatedConfig{
-		Name:       b.Name,
-		PrivateKey: b.PrivateKey,
-		DNS:        cleanDns,
-		UseStation: b.Endpoint == "station",
-		KeepAlive:  ka,
-	}, ""
+func validateBatch(b types.BatchConfigReq) (types.ValidatedConfig, string) {
+	cfg, errs := parseCommon(b.PrivateKey, b.DNS, b.Endpoint, b.KeepAlive)
+	if len(errs) > 0 {
+		return types.ValidatedConfig{}, strings.Join(errs, ", ")
+	}
+	return cfg, ""
+}
+
+func sanitizeFilename(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, c := range s {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+			b.WriteRune(c)
+		} else if c == ' ' {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
+}
+
+func extractFirstNumber(s string) string {
+	start := -1
+	for i := 0; i < len(s); i++ {
+		if s[i] >= '0' && s[i] <= '9' {
+			if start == -1 {
+				start = i
+			}
+		} else {
+			if start != -1 {
+				return s[start:i]
+			}
+		}
+	}
+	if start != -1 {
+		return s[start:]
+	}
+	return ""
 }
 
 func main() {
@@ -194,12 +243,13 @@ func main() {
 			return c.SendString(confContent)
 		}
 
+		num := extractFirstNumber(srv.Name)
+		if num == "" {
+			num = "wg"
+		}
+		fname := fmt.Sprintf("%s%s.conf", strings.ToLower(srv.Code), num)
+
 		if outputType == "file" {
-			num := regexp.MustCompile(`\d+`).FindString(srv.Name)
-			if num == "" {
-				num = "wg"
-			}
-			fname := fmt.Sprintf("%s%s.conf", srv.Country[0:2], num)
 			c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fname))
 			c.Set("Content-Type", "application/x-wireguard-config")
 			return c.SendString(confContent)
@@ -216,6 +266,97 @@ func main() {
 	api.Post("/config", func(c *fiber.Ctx) error { return handleConfig(c, "text") })
 	api.Post("/config/download", func(c *fiber.Ctx) error { return handleConfig(c, "file") })
 	api.Post("/config/qr", func(c *fiber.Ctx) error { return handleConfig(c, "qr") })
+
+	api.Post("/config/batch", func(c *fiber.Ctx) error {
+		var body types.BatchConfigReq
+		if err := c.BodyParser(&body); err != nil {
+			return c.SendStatus(400)
+		}
+
+		cfg, errMsg := validateBatch(body)
+		if errMsg != "" {
+			return c.Status(400).JSON(fiber.Map{"error": errMsg})
+		}
+
+		servers := store.Core.GetBatch(body.Country, body.City)
+		if len(servers) == 0 {
+			return c.Status(404).JSON(fiber.Map{"error": "No servers found"})
+		}
+
+		baseName := "NordVPN_All"
+		if body.Country != "" {
+			baseName = "NordVPN_" + sanitizeFilename(body.Country)
+			if body.City != "" {
+				baseName += "_" + sanitizeFilename(body.City)
+			}
+		}
+
+		c.Set("Content-Type", "application/octet-stream")
+		c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.nord"`, baseName))
+		c.Set("Cache-Control", "no-store")
+
+		c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+			zw := zip.NewWriter(w)
+			defer zw.Close()
+
+			usedPaths := make(map[string]int)
+
+			for _, srv := range servers {
+				pk, ok := store.Core.GetKey(srv.KeyID)
+				if !ok {
+					continue
+				}
+
+				num := extractFirstNumber(srv.Name)
+				if num == "" {
+					num = "wg"
+				}
+				fName := fmt.Sprintf("%s%s.conf", strings.ToLower(srv.Code), num)
+
+				var path string
+				if body.Country == "" {
+					path = fmt.Sprintf("%s/%s/%s", srv.Country, srv.City, fName)
+				} else if body.City == "" {
+					path = fmt.Sprintf("%s/%s", srv.City, fName)
+				} else {
+					path = fName
+				}
+
+				if val, exists := usedPaths[path]; exists {
+					originalPath := path
+					base := originalPath[:len(originalPath)-5]
+					idx := val
+					if idx == 0 {
+						idx = 1
+					}
+					for {
+						candidate := fmt.Sprintf("%s_%d.conf", base, idx)
+						idx++
+						if _, occupied := usedPaths[candidate]; !occupied {
+							path = candidate
+							usedPaths[originalPath] = idx
+							break
+						}
+					}
+				}
+
+				usedPaths[path] = 0
+
+				f, err := zw.CreateHeader(&zip.FileHeader{
+					Name:   path,
+					Method: zip.Store,
+				})
+				if err != nil {
+					continue
+				}
+
+				conf := wg.Build(srv, pk, cfg)
+				f.Write([]byte(conf))
+			}
+		})
+
+		return nil
+	})
 
 	app.Use(func(c *fiber.Ctx) error {
 		path := c.Path()

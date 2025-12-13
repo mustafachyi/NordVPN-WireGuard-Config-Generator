@@ -11,6 +11,16 @@ type ConfigRequest struct {
 	KeepAlive  *int   `json:"keepalive"`
 }
 
+type BatchConfigReq struct {
+	Token      string `json:"token"`
+	PrivateKey string `json:"privateKey"`
+	DNS        string `json:"dns"`
+	Endpoint   string `json:"endpoint"`
+	KeepAlive  *int   `json:"keepalive"`
+	Country    string `json:"country"`
+	City       string `json:"city"`
+}
+
 type ValidatedConfig struct {
 	Name       string
 	PrivateKey string
@@ -49,11 +59,12 @@ type ProcessedServer struct {
 	Hostname string
 	Country  string
 	City     string
+	Code     string
 	KeyID    int
 }
 
 type ServerPayload struct {
-	Headers []string                                          `json:"h"`
+	Headers []string                              `json:"h"`
 	List    map[string]map[string][][]interface{} `json:"l"`
 }
 

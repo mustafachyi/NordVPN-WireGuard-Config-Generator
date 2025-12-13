@@ -1,7 +1,7 @@
 package wg
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
 	"nordgen/internal/types"
@@ -9,6 +9,8 @@ import (
 
 func Build(server types.ProcessedServer, pubKey string, opts types.ValidatedConfig) string {
 	var sb strings.Builder
+	sb.Grow(512)
+
 	endpoint := server.Hostname
 	if opts.UseStation {
 		endpoint = server.Station
@@ -23,7 +25,7 @@ func Build(server types.ProcessedServer, pubKey string, opts types.ValidatedConf
 	sb.WriteString("\nAllowedIPs=0.0.0.0/0,::/0\nEndpoint=")
 	sb.WriteString(endpoint)
 	sb.WriteString(":51820\nPersistentKeepalive=")
-	sb.WriteString(fmt.Sprintf("%d", opts.KeepAlive))
+	sb.WriteString(strconv.Itoa(opts.KeepAlive))
 
 	return sb.String()
 }
