@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.25.5-alpine3.23 AS builder
 WORKDIR /build
 RUN apk add --no-cache git
 COPY web-version-V2/web-version-V2-Backend/go.mod web-version-V2/web-version-V2-Backend/go.sum ./
