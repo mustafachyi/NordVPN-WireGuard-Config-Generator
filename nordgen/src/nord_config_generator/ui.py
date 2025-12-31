@@ -33,10 +33,47 @@ class ConsoleManager:
 
     def get_preferences(self, defaults: "UserPreferences") -> dict:
         self.console.print("\n[info]Configuration Options (press Enter to use defaults)[/info]")
+
+        # Basic options
         dns = self.get_user_input(f"Enter DNS server IP (default: {defaults.dns}): ")
         endpoint_type = self.get_user_input("Use IP instead of hostname for endpoints? (y/N): ")
         keepalive = self.get_user_input(f"Enter PersistentKeepalive value (default: {defaults.persistent_keepalive}): ")
-        return {"dns": dns, "endpoint_type": endpoint_type, "keepalive": keepalive}
+
+        # Server filtering options
+        self.console.print("\n[info]Server Filtering Options (optional)[/info]")
+
+        # Server type
+        self.console.print("\nServer type:")
+        self.console.print("  1. All servers (default, excludes Dedicated IP)")
+        self.console.print("  2. Standard servers only")
+        self.console.print("  3. P2P servers only")
+        self.console.print("  4. Dedicated IP servers only (requires subscription)")
+        server_type = self.get_user_input("Enter choice (1-4): ")
+
+        # Regions
+        self.console.print("\nRegions (you can select multiple, e.g., '1,2'):")
+        self.console.print("  1. Europe")
+        self.console.print("  2. The Americas")
+        self.console.print("  3. Asia Pacific")
+        self.console.print("  4. Africa, Middle East & India")
+        self.console.print("  (press Enter for all regions)")
+        regions = self.get_user_input("Enter choice(s): ")
+
+        # Countries
+        countries = self.get_user_input("Countries (e.g., France, Germany) or press Enter for all: ")
+
+        # Max load
+        max_load = self.get_user_input(f"Maximum server load % (default: {defaults.max_load}): ")
+
+        return {
+            "dns": dns,
+            "endpoint_type": endpoint_type,
+            "keepalive": keepalive,
+            "server_type": server_type,
+            "regions": regions,
+            "countries": countries,
+            "max_load": max_load
+        }
 
     def print_message(self, style: str, message: str):
         self.console.print(f"[{style}]{message}[/{style}]")

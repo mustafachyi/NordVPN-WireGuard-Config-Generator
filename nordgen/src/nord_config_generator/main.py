@@ -36,11 +36,24 @@ class UserPreferences:
     dns: str = "103.86.96.100"
     use_ip_for_endpoint: bool = False
     persistent_keepalive: int = 25
+    # Server filtering options
+    server_type: str = "all"  # "all", "standard", "p2p", "dedicated_ip"
+    regions: Optional[List[str]] = None  # ["europe", "the_americas", "asia_pacific", "africa_the_middle_east_and_india"] or None for all
+    countries: Optional[List[str]] = None  # ["France", "Germany"] or None for all
+    max_load: int = 100  # Maximum server load percentage (0-100)
 
 @dataclass
 class GenerationStats:
     total_configs: int = 0
     best_configs: int = 0
+
+@dataclass
+class ServerMetadata:
+    """Metadata from API for dynamic menus"""
+    regions: List[Dict[str, str]]  # [{"id": "europe", "name": "Europe"}, ...]
+    server_types: List[Dict[str, str]]  # [{"id": "legacy_p2p", "name": "P2P"}, ...]
+    countries: List[Dict[str, str]]  # [{"id": "France", "name": "France", "code": "FR"}, ...]
+    cities: List[Dict[str, str]]  # [{"name": "Paris", "country": "France"}, ...] - extracted from servers
 
 class NordVpnApiClient:
     NORD_API_BASE_URL = "https://api.nordvpn.com/v1"
@@ -69,7 +82,11 @@ class NordVpnApiClient:
 
     async def get_all_servers(self) -> List[Dict[str, Any]]:
         url = f"{self.NORD_API_BASE_URL}/servers"
-        params = {'limit': 16384, 'filters[servers_technologies][identifier]': 'wireguard_udp'}
+        params = {
+            'limit': 16384,
+            'filters[servers_technologies][identifier]': 'wireguard_udp',
+            'filters[servers_status]': 'online'
+        }
         data = await self._get(url, params=params)
         return data if isinstance(data, list) else []
 
@@ -83,6 +100,74 @@ class NordVpnApiClient:
         except (ValueError, IndexError):
             self._console.print_message("error", "Could not parse location data.")
             return None
+
+    async def get_groups(self) -> List[Dict[str, Any]]:
+        """Fetch all server groups (regions, server types, etc.)"""
+        url = f"{self.NORD_API_BASE_URL}/servers/groups"
+        data = await self._get(url)
+        return data if isinstance(data, list) else []
+
+    async def get_countries(self) -> List[Dict[str, Any]]:
+        """Fetch all available countries"""
+        url = f"{self.NORD_API_BASE_URL}/servers/countries"
+        data = await self._get(url)
+        return data if isinstance(data, list) else []
+
+    async def build_metadata(self, servers: List[Dict[str, Any]]) -> ServerMetadata:
+        """Build metadata from API data for dynamic menus"""
+        # Fetch groups and countries
+        groups_data, countries_data = await asyncio.gather(
+            self.get_groups(),
+            self.get_countries()
+        )
+
+        # Extract regions (geographic groupings)
+        regions = []
+        region_keywords = ['europe', 'america', 'asia', 'africa']
+        for group in groups_data:
+            identifier = group.get('identifier', '')
+            if any(keyword in identifier for keyword in region_keywords):
+                regions.append({
+                    'id': identifier,
+                    'name': group.get('title', identifier)
+                })
+
+        # Extract server types (P2P, Dedicated IP, Double VPN, etc.)
+        server_types = [{'id': 'all', 'name': 'All servers (excludes Dedicated IP)'}]
+        type_keywords = ['legacy_standard', 'legacy_p2p', 'legacy_dedicated_ip',
+                        'legacy_double_vpn', 'legacy_onion_over_vpn', 'legacy_obfuscated_servers']
+        for group in groups_data:
+            identifier = group.get('identifier', '')
+            if identifier in type_keywords:
+                server_types.append({
+                    'id': identifier,
+                    'name': group.get('title', identifier)
+                })
+
+        # Format countries
+        countries = [{'id': c['name'], 'name': c['name'], 'code': c['code']}
+                    for c in countries_data]
+
+        # Extract cities from servers
+        cities_set = set()
+        for server in servers:
+            for location in server.get('locations', []):
+                country_info = location.get('country', {})
+                city_info = country_info.get('city', {})
+                city_name = city_info.get('name')
+                country_name = country_info.get('name')
+                if city_name and country_name:
+                    cities_set.add((city_name, country_name))
+
+        cities = [{'name': city, 'country': country}
+                 for city, country in sorted(cities_set)]
+
+        return ServerMetadata(
+            regions=regions,
+            server_types=server_types,
+            countries=countries,
+            cities=cities
+        )
 
     async def _get(self, url: str, **kwargs) -> Optional[Any]:
         if not self._session:
@@ -142,7 +227,7 @@ class ConfigurationOrchestrator:
 
     async def _process_server_data(self, all_servers_data: List[Dict[str, Any]], user_location: Tuple[float, float]) -> List[Server]:
         loop = asyncio.get_running_loop()
-        parse_func = partial(self._parse_server_data, user_location=user_location)
+        parse_func = partial(self._parse_server_data, user_location=user_location, preferences=self._preferences)
         with ThreadPoolExecutor(max_workers=min(32, (os.cpu_count() or 1) + 4)) as executor:
             tasks = [loop.run_in_executor(executor, parse_func, s) for s in all_servers_data]
             processed_servers = await asyncio.gather(*tasks)
@@ -247,22 +332,62 @@ class ConfigurationOrchestrator:
         return f"[Interface]\nPrivateKey = {private_key}\nAddress = 10.5.0.2/16\nDNS = {preferences.dns}\n\n[Peer]\nPublicKey = {server.public_key}\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = {endpoint}:51820\nPersistentKeepalive = {preferences.persistent_keepalive}"
 
     @staticmethod
-    def _parse_server_data(server_data: Dict[str, Any], user_location: Tuple[float, float]) -> Optional[Server]:
+    def _parse_server_data(server_data: Dict[str, Any], user_location: Tuple[float, float], preferences: UserPreferences) -> Optional[Server]:
         try:
+            server_groups = server_data.get('groups', [])
+            group_identifiers = {g.get('identifier') for g in server_groups}
+
+            # Check if server is Dedicated IP
+            is_dedicated_ip = 'legacy_dedicated_ip' in group_identifiers or 'dedicated_ip' in group_identifiers
+
+            # Filter by server type
+            if preferences.server_type == "all":
+                # "all" excludes Dedicated IP servers (default behavior)
+                if is_dedicated_ip:
+                    return None
+            elif preferences.server_type == "standard":
+                if 'legacy_standard' not in group_identifiers or is_dedicated_ip:
+                    return None
+            elif preferences.server_type == "p2p":
+                if 'legacy_p2p' not in group_identifiers or is_dedicated_ip:
+                    return None
+            elif preferences.server_type == "dedicated_ip":
+                # Only include Dedicated IP servers
+                if not is_dedicated_ip:
+                    return None
+
+            # Filter by region
+            if preferences.regions:
+                region_match = any(region in group_identifiers for region in preferences.regions)
+                if not region_match:
+                    return None
+
+            # Filter by load
+            server_load = int(server_data.get('load', 0))
+            if server_load > preferences.max_load:
+                return None
+
             location = server_data['locations'][0]
             country_info = location['country']
-            
+
+            # Filter by country
+            if preferences.countries:
+                if country_info['name'] not in preferences.countries:
+                    return None
+
+            # Extract WireGuard public key from metadata
             public_key = next(
                 m['value'] for t in server_data['technologies']
                 if t['identifier'] == 'wireguard_udp'
                 for m in t['metadata'] if m['name'] == 'public_key'
             )
+
             distance = ConfigurationOrchestrator._calculate_distance(
                 user_location[0], user_location[1], location['latitude'], location['longitude']
             )
             return Server(
                 name=server_data['name'], hostname=server_data['hostname'],
-                station=server_data['station'], load=int(server_data.get('load', 0)),
+                station=server_data['station'], load=server_load,
                 country=country_info['name'], country_code=country_info['code'].lower(),
                 city=country_info.get('city', {}).get('name', 'Unknown'),
                 latitude=location['latitude'], longitude=location['longitude'],
@@ -334,24 +459,66 @@ class Application:
         defaults = UserPreferences()
         user_input = self._console.get_preferences(defaults)
 
+        # Parse DNS
         dns_input = user_input.get("dns")
         if dns_input:
             parts = dns_input.split('.')
             if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
                 defaults.dns = dns_input
-        
+
+        # Parse endpoint type
         use_ip = user_input.get("endpoint_type", "").lower() == 'y'
 
+        # Parse keepalive
         keepalive_input = user_input.get("keepalive")
         if keepalive_input and keepalive_input.isdigit():
             keepalive_val = int(keepalive_input)
             if 15 <= keepalive_val <= 120:
                 defaults.persistent_keepalive = keepalive_val
-        
+
+        # Parse server type (numeric menu)
+        server_type_map = {"1": "all", "2": "standard", "3": "p2p", "4": "dedicated_ip"}
+        server_type_input = user_input.get("server_type", "").strip()
+        server_type = server_type_map.get(server_type_input, "all")
+
+        # Parse regions (numeric menu, can select multiple)
+        regions_map = {
+            "1": "europe",
+            "2": "the_americas",
+            "3": "asia_pacific",
+            "4": "africa_the_middle_east_and_india"
+        }
+        regions_input = user_input.get("regions", "").strip()
+        regions = None
+        if regions_input:
+            # Split by comma and convert numbers to region names
+            region_numbers = [n.strip() for n in regions_input.split(',')]
+            regions = [regions_map[n] for n in region_numbers if n in regions_map]
+            if not regions:
+                regions = None
+
+        # Parse countries
+        countries_input = user_input.get("countries", "").strip()
+        countries = None
+        if countries_input:
+            countries = [c.strip() for c in countries_input.split(',') if c.strip()]
+
+        # Parse max load
+        max_load = defaults.max_load
+        max_load_input = user_input.get("max_load", "").strip()
+        if max_load_input and max_load_input.isdigit():
+            load_val = int(max_load_input)
+            if 0 <= load_val <= 100:
+                max_load = load_val
+
         return UserPreferences(
             dns=defaults.dns,
             use_ip_for_endpoint=use_ip,
-            persistent_keepalive=defaults.persistent_keepalive
+            persistent_keepalive=defaults.persistent_keepalive,
+            server_type=server_type,
+            regions=regions,
+            countries=countries,
+            max_load=max_load
         )
 
     async def _get_validated_private_key(self, api_client: NordVpnApiClient) -> Optional[str]:
