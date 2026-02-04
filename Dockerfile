@@ -2,9 +2,9 @@ FROM golang:1.25.6-alpine3.23 AS builder
 WORKDIR /build
 RUN apk add --no-cache git ca-certificates
 RUN adduser --disabled-password --gecos "" --home "/nonexistent" --shell "/sbin/nologin" --no-create-home --uid 10001 appuser
-COPY web/web-Backend/go.mod web/web-Backend/go.sum ./
+COPY Web/web-Backend/go.mod Web/web-Backend/go.sum ./
 RUN go mod download
-COPY web/web-Backend .
+COPY Web/web-Backend .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -trimpath -o server main.go
 
 FROM scratch
