@@ -1,73 +1,118 @@
+import os
+from typing import TYPE_CHECKING
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TaskID
 from rich.theme import Theme
 from rich.table import Table
-from pathlib import Path
-from typing import TYPE_CHECKING
-import os
 
 if TYPE_CHECKING:
-    from .main import UserPreferences, GenerationStats
+    from .models import UserPreferences, Stats
 
 class ConsoleManager:
     def __init__(self):
-        custom_theme = Theme({
+        theme = Theme({
             "info": "cyan",
             "success": "bold green",
             "warning": "yellow",
             "error": "bold red",
             "title": "bold magenta",
-            "path": "underline bright_blue"
         })
-        self.console = Console(theme=custom_theme)
+        self.console = Console(theme=theme)
+        self.progress = None
+        self.task_ids = {}
 
     def clear(self):
         os.system('cls' if os.name == 'nt' else 'clear')
 
-    def print_title(self):
-        self.console.print(Panel("[title]NordVPN Configuration Generator[/title]", expand=False, border_style="info"))
+    def header(self):
+        self.console.print(Panel(
+            "[title]NordVPN Configuration Generator[/title]", 
+            expand=False, 
+            border_style="cyan",
+            padding=(0, 2)
+        ))
 
-    def get_user_input(self, prompt: str, is_secret: bool = False) -> str:
-        return self.console.input(f"[info]{prompt}[/info]", password=is_secret).strip()
+    def prompt_secret(self, msg: str) -> str:
+        return self.console.input(f"[cyan]{msg}[/cyan]", password=True).strip()
 
-    def get_preferences(self, defaults: "UserPreferences") -> dict:
-        self.console.print("\n[info]Configuration Options (press Enter to use defaults)[/info]")
-        dns = self.get_user_input(f"Enter DNS server IP (default: {defaults.dns}): ")
-        endpoint_type = self.get_user_input("Use IP instead of hostname for endpoints? (y/N): ")
-        keepalive = self.get_user_input(f"Enter PersistentKeepalive value (default: {defaults.persistent_keepalive}): ")
-        return {"dns": dns, "endpoint_type": endpoint_type, "keepalive": keepalive}
+    def prompt_prefs(self, defaults: "UserPreferences") -> "UserPreferences":
+        from .models import UserPreferences
+        self.console.print("[info]Configuration Options (Enter for default)[/info]")
+        
+        d_in = self.console.input(f"DNS IP (default: {defaults.dns}): ").strip()
+        dns = d_in if d_in else defaults.dns
+        
+        i_in = self.console.input("Use IP for endpoints? (y/N): ").strip().lower()
+        use_ip = i_in == 'y'
+        
+        k_in = self.console.input(f"PersistentKeepalive (default: {defaults.keepalive}): ").strip()
+        ka = int(k_in) if k_in.isdigit() else defaults.keepalive
+        
+        return UserPreferences(dns, use_ip, ka)
 
-    def print_message(self, style: str, message: str):
-        self.console.print(f"[{style}]{message}[/{style}]")
+    def spin(self, msg: str):
+        with self.console.status(f"[cyan]{msg}"):
+            pass
 
-    def create_progress_bar(self, transient: bool = True) -> Progress:
-        return Progress(
+    def success(self, msg: str):
+        self.console.print(f"[success]{msg}[/success]")
+
+    def fail(self, msg: str):
+        self.console.print(f"[error]{msg}[/error]")
+
+    def error(self, msg: str):
+        self.console.print(f"[error]{msg}[/error]")
+
+    def show_key(self, key: str):
+        self.console.print(Panel(
+            f"[green]{key}[/green]", 
+            title="NordLynx Private Key", 
+            border_style="green",
+            expand=False
+        ))
+
+    def summary(self, path: str, stats: "Stats", sec: float):
+        grid = Table.grid(padding=(0, 2))
+        grid.add_column(style="cyan")
+        grid.add_column()
+        grid.add_row("Output Directory:", path)
+        grid.add_row("Standard Configs:", str(stats.total))
+        grid.add_row("Optimized Configs:", str(stats.best))
+        grid.add_row("Incompatible:", f"[yellow]{stats.rejected}[/yellow]")
+        grid.add_row("Duration:", f"{sec:.2f}s")
+        
+        self.console.print(Panel(
+            grid, 
+            title="Complete", 
+            border_style="green", 
+            expand=False
+        ))
+
+    def start_progress(self):
+        self.progress = Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeElapsedColumn(),
+            TextColumn("{task.completed}/{task.total}"),
             console=self.console,
-            transient=transient
+            transient=False
         )
+        self.progress.start()
 
-    def display_key(self, key: str):
-        key_panel = Panel(key, title="NordLynx Private Key", border_style="success", expand=False)
-        self.console.print(key_panel)
+    def add_task(self, name: str, total: int) -> TaskID:
+        if self.progress:
+            return self.progress.add_task(name, total=total)
+        return TaskID(0)
 
-    def display_summary(self, output_dir: Path, stats: "GenerationStats", elapsed_time: float):
-        summary_table = Table.grid(padding=(0, 2))
-        summary_table.add_column(style="info")
-        summary_table.add_column()
-        summary_table.add_row("Output Directory:", f"[path]{output_dir}[/path]")
-        summary_table.add_row("Standard Configs:", f"{stats.total_configs}")
-        summary_table.add_row("Optimized Configs:", f"{stats.best_configs}")
-        summary_table.add_row("Time Taken:", f"{elapsed_time:.2f} seconds")
+    def update_progress(self, task_id: TaskID):
+        if self.progress:
+            self.progress.update(task_id, advance=1)
 
-        self.console.print(Panel(
-            summary_table,
-            title="[success]Generation Complete[/success]",
-            border_style="success",
-            expand=False
-        ))
+    def stop_progress(self):
+        if self.progress:
+            self.progress.stop()
+
+    def wait(self):
+        self.console.print()
+        self.console.input("[info]Press Enter to exit...[/info]")

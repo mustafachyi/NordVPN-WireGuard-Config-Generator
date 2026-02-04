@@ -1,0 +1,30 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "go",
+            "args": [
+                "build",
+                "-ldflags=-s -w",
+                "-trimpath",
+                "-o",
+                "${workspaceFolder}\\bin\\nordgen.exe",
+                ".\\cmd\\nordgen"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": [
+                "$go"
+            ]
+        }
+    ]
+}
