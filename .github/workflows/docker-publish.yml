@@ -26,7 +26,6 @@ jobs:
 
           FROM alpine:3.23
           RUN apk add --no-cache ca-certificates
-          RUN mkdir -p /data && chmod 777 /data
           COPY --from=builder /build/nordgen /usr/local/bin/nordgen
           WORKDIR /data
           ENTRYPOINT ["nordgen"]
