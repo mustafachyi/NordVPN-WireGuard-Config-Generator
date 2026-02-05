@@ -26,7 +26,10 @@ jobs:
 
           FROM alpine:3.23
           RUN apk add --no-cache ca-certificates
+          RUN adduser -D -u 1000 nordgen
           COPY --from=builder /build/nordgen /usr/local/bin/nordgen
+          RUN chmod +x /usr/local/bin/nordgen
+          USER 1000
           WORKDIR /data
           ENTRYPOINT ["nordgen"]
           EOF
