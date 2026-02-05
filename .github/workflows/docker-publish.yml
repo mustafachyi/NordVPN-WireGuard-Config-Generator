@@ -19,7 +19,6 @@ jobs:
           FROM golang:1.25.6-alpine3.23 AS builder
           WORKDIR /build
           RUN apk add --no-cache ca-certificates
-          RUN adduser --disabled-password --gecos "" --home "/nonexistent" --shell "/sbin/nologin" --no-create-home --uid 10001 appuser
           COPY nordgen-go/go.mod nordgen-go/go.sum ./
           RUN go mod download
           COPY nordgen-go/ .
@@ -27,10 +26,7 @@ jobs:
 
           FROM scratch
           COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-          COPY --from=builder /etc/passwd /etc/passwd
-          COPY --from=builder /etc/group /etc/group
           COPY --from=builder /build/nordgen /nordgen
-          USER appuser
           WORKDIR /data
           ENTRYPOINT ["/nordgen"]
           EOF
