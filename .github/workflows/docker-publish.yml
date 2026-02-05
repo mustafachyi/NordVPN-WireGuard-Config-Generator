@@ -24,11 +24,11 @@ jobs:
           COPY nordgen-go/ .
           RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -trimpath -o nordgen ./cmd/nordgen
 
-          FROM scratch
-          COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-          COPY --from=builder /build/nordgen /nordgen
+          FROM alpine:3.23
+          RUN apk add --no-cache ca-certificates
+          COPY --from=builder /build/nordgen /usr/local/bin/nordgen
           WORKDIR /data
-          ENTRYPOINT ["/nordgen"]
+          ENTRYPOINT ["nordgen"]
           EOF
 
       - name: Log in to Docker Hub
