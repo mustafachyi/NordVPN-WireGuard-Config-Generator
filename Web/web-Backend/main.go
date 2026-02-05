@@ -140,30 +140,62 @@ func extractFirstNumber(s string) string {
 	return ""
 }
 
+func originGuard(c *fiber.Ctx) error {
+	host := c.Hostname()
+	origin := c.Get("Origin")
+	referer := c.Get("Referer")
+
+	if origin != "" {
+		cleanOrg := strings.TrimPrefix(strings.TrimPrefix(origin, "https://"), "http://")
+		if cleanOrg != host && !strings.HasPrefix(cleanOrg, host+":") {
+			return c.Status(403).JSON(fiber.Map{"error": "Forbidden Origin"})
+		}
+	}
+
+	if referer != "" {
+		if !strings.Contains(referer, host) {
+			return c.Status(403).JSON(fiber.Map{"error": "Forbidden Referer"})
+		}
+	}
+
+	return c.Next()
+}
+
 func main() {
 	store.Core.Init()
 
 	app := fiber.New(fiber.Config{
 		DisableStartupMessage: false,
 		BodyLimit:             4 * 1024 * 1024,
+		ProxyHeader:           "X-Forwarded-For",
 	})
 
 	app.Use(cors.New())
+	app.Use(compress.New())
 
 	api := app.Group("/api")
-	api.Use(limiter.New(limiter.Config{
+	api.Use(originGuard)
+
+	stdLimiter := limiter.New(limiter.Config{
 		Max:        100,
 		Expiration: 1 * time.Minute,
 		KeyGenerator: func(c *fiber.Ctx) string {
-			if k := c.Get("x-test-key"); k != "" {
-				return k
-			}
 			return c.IP()
 		},
-	}))
-	api.Use(compress.New())
+	})
 
-	api.Get("/servers", func(c *fiber.Ctx) error {
+	heavyLimiter := limiter.New(limiter.Config{
+		Max:        5,
+		Expiration: 1 * time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return c.IP()
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(429).JSON(fiber.Map{"error": "Rate limit exceeded for batch generation"})
+		},
+	})
+
+	api.Get("/servers", stdLimiter, func(c *fiber.Ctx) error {
 		data, etag := store.Core.GetServerList()
 		if data == nil {
 			return c.Status(503).JSON(fiber.Map{"error": "Initializing"})
@@ -177,7 +209,7 @@ func main() {
 		return c.Send(data)
 	})
 
-	api.Post("/key", func(c *fiber.Ctx) error {
+	api.Post("/key", stdLimiter, func(c *fiber.Ctx) error {
 		var body struct {
 			Token string `json:"token"`
 		}
@@ -263,11 +295,11 @@ func main() {
 		return c.Send(png)
 	}
 
-	api.Post("/config", func(c *fiber.Ctx) error { return handleConfig(c, "text") })
-	api.Post("/config/download", func(c *fiber.Ctx) error { return handleConfig(c, "file") })
-	api.Post("/config/qr", func(c *fiber.Ctx) error { return handleConfig(c, "qr") })
+	api.Post("/config", stdLimiter, func(c *fiber.Ctx) error { return handleConfig(c, "text") })
+	api.Post("/config/download", stdLimiter, func(c *fiber.Ctx) error { return handleConfig(c, "file") })
+	api.Post("/config/qr", stdLimiter, func(c *fiber.Ctx) error { return handleConfig(c, "qr") })
 
-	api.Post("/config/batch", func(c *fiber.Ctx) error {
+	api.Post("/config/batch", heavyLimiter, func(c *fiber.Ctx) error {
 		var body types.BatchConfigReq
 		if err := c.BodyParser(&body); err != nil {
 			return c.SendStatus(400)

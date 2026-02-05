@@ -51,7 +51,7 @@ const genKey = async t => {
     ui.modals.value.key = false
     notif.show('Key generated', 'success')
   } catch (e) {
-    notif.show(e.status === 401 ? 'Invalid token' : 'Generation failed', 'error')
+    notif.show(e.message || 'Generation failed', 'error')
   }
 }
 
@@ -68,7 +68,7 @@ const applyCfg = c => {
 
 const dl = async s => {
   try { await cfg.dl(s); notif.show('Downloaded', 'success') }
-  catch { notif.show('Download failed', 'error') }
+  catch (e) { notif.show(e.message || 'Download failed', 'error') }
 }
 
 const dlBatch = async () => {
@@ -78,8 +78,8 @@ const dlBatch = async () => {
   try {
     await cfg.dlBatch({ country: srv.fCountry.value, city: srv.fCity.value })
     notif.show('Download started', 'success')
-  } catch {
-    notif.show('Batch download failed', 'error')
+  } catch (e) {
+    notif.show(e.message || 'Batch download failed', 'error')
   } finally {
     dlLoading.value = false
   }
@@ -87,12 +87,12 @@ const dlBatch = async () => {
 
 const cp = async s => {
   try { await cfg.copy(s); notif.show('Copied', 'success') }
-  catch { notif.show('Copy failed', 'error') }
+  catch (e) { notif.show(e.message || 'Copy failed', 'error') }
 }
 
 const qr = s => {
   ui.showQR(s, () => api.genQR(cfg.make(s)))
-    .catch(() => notif.show('QR generation failed', 'error'))
+    .catch(e => notif.show(e.message || 'QR generation failed', 'error'))
 }
 
 onMounted(async () => {

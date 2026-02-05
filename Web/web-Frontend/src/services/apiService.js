@@ -11,11 +11,18 @@ async function req(end, opt = {}) {
       headers: { 'Content-Type': MIME.json, ...opt.headers },
       signal: c.signal
     })
+    
     if (!r.ok) {
-      const e = new Error(`HTTP ${r.status}`)
+      let m = `HTTP ${r.status}`
+      try {
+        const d = await r.json()
+        if (d?.error) m = d.error
+      } catch {}
+      const e = new Error(m)
       e.status = r.status
       throw e
     }
+
     const t = r.headers.get('content-type') || ''
     if (t.includes(MIME.wg) || t.startsWith(MIME.img) || t.includes(MIME.zip) || t.includes(MIME.bin)) return r
     return t.includes(MIME.json) ? r.json() : r.text()
