@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"nordgen/internal/types"
@@ -23,23 +23,23 @@ const (
 	REFRESH    = 5 * time.Minute
 )
 
+type State struct {
+	Servers     map[string]types.ProcessedServer
+	Keys        map[int]string
+	RegionIndex map[string]map[string][]types.ProcessedServer
+	ServerJson  []byte
+	ServerEtag  string
+	IndexAsset  *types.Asset
+}
+
 type Store struct {
-	sync.RWMutex
-	assets      map[string]*types.Asset
-	servers     map[string]types.ProcessedServer
-	keys        map[int]string
-	regionIndex map[string]map[string][]string
-	serverJson  []byte
-	serverEtag  string
-	indexRaw    []byte
-	indexAsset  *types.Asset
+	state    atomic.Pointer[State]
+	assets   map[string]*types.Asset
+	indexRaw []byte
 }
 
 var Core = &Store{
-	assets:      make(map[string]*types.Asset),
-	servers:     make(map[string]types.ProcessedServer),
-	keys:        make(map[int]string),
-	regionIndex: make(map[string]map[string][]string),
+	assets: make(map[string]*types.Asset),
 }
 
 func (s *Store) Init() {
@@ -100,14 +100,12 @@ func (s *Store) loadAssets(dir string) error {
 			mimeType = "application/octet-stream"
 		}
 
-		s.Lock()
 		s.assets[webPath] = &types.Asset{
 			Content: content,
 			Brotli:  brContent,
 			Mime:    mimeType,
 			Etag:    fmt.Sprintf(`W/"%x-%x"`, len(content), time.Now().UnixMilli()),
 		}
-		s.Unlock()
 	}
 	return nil
 }
@@ -195,10 +193,13 @@ func (s *Store) updateServers() {
 		return
 	}
 
-	newServers := make(map[string]types.ProcessedServer, len(raw))
+	state := &State{
+		Servers:     make(map[string]types.ProcessedServer, len(raw)),
+		Keys:        make(map[int]string, len(raw)),
+		RegionIndex: make(map[string]map[string][]types.ProcessedServer),
+	}
+
 	newKeys := make(map[string]int, len(raw))
-	keyMap := make(map[int]string, len(raw))
-	newRegionIndex := make(map[string]map[string][]string)
 	payload := types.ServerPayload{
 		Headers: []string{"name", "load", "station"},
 		List:    make(map[string]map[string][][]interface{}),
@@ -224,7 +225,7 @@ func (s *Store) updateServers() {
 		}
 
 		name := normalize(srv.Name)
-		if _, seen := newServers[name]; seen {
+		if _, seen := state.Servers[name]; seen {
 			continue
 		}
 
@@ -248,13 +249,13 @@ func (s *Store) updateServers() {
 			id = kID
 			kID++
 			newKeys[pk] = id
-			keyMap[id] = pk
+			state.Keys[id] = pk
 		}
 
 		country := normalize(loc.Country.Name)
 		city := normalize(loc.Country.City.Name)
 
-		newServers[name] = types.ProcessedServer{
+		processed := types.ProcessedServer{
 			Name:     name,
 			Station:  srv.Station,
 			Hostname: srv.Hostname,
@@ -264,36 +265,30 @@ func (s *Store) updateServers() {
 			KeyID:    id,
 		}
 
+		state.Servers[name] = processed
+
 		if payload.List[country] == nil {
 			payload.List[country] = make(map[string][][]interface{})
-			newRegionIndex[country] = make(map[string][]string)
-		}
-		if newRegionIndex[country][city] == nil {
-			newRegionIndex[country][city] = []string{}
+			state.RegionIndex[country] = make(map[string][]types.ProcessedServer)
 		}
 
 		payload.List[country][city] = append(payload.List[country][city], []interface{}{name, srv.Load, srv.Station})
-		newRegionIndex[country][city] = append(newRegionIndex[country][city], name)
+		state.RegionIndex[country][city] = append(state.RegionIndex[country][city], processed)
 	}
 
 	jsonData, _ := json.Marshal(payload)
-	etag := fmt.Sprintf(`W/"%s"`, strings.Trim(fmt.Sprintf("%x", time.Now().UnixNano()), "-"))
+	state.ServerJson = jsonData
+	state.ServerEtag = fmt.Sprintf(`W/"%s"`, strings.Trim(fmt.Sprintf("%x", time.Now().UnixNano()), "-"))
 
-	s.Lock()
-	s.servers = newServers
-	s.keys = keyMap
-	s.regionIndex = newRegionIndex
-	s.serverJson = jsonData
-	s.serverEtag = etag
-	s.rebuildIndex()
-	s.Unlock()
+	s.rebuildIndex(state)
+	s.state.Store(state)
 }
 
-func (s *Store) rebuildIndex() {
+func (s *Store) rebuildIndex(state *State) {
 	if s.indexRaw == nil {
 		return
 	}
-	script := fmt.Sprintf(`<script id="server-data" type="application/json">%s</script>`, s.serverJson)
+	script := fmt.Sprintf(`<script id="server-data" type="application/json">%s</script>`, state.ServerJson)
 	htmlStr := strings.Replace(string(s.indexRaw), "</body>", script+"</body>", 1)
 	content := []byte(htmlStr)
 
@@ -302,87 +297,87 @@ func (s *Store) rebuildIndex() {
 	w.Write(content)
 	w.Close()
 
-	s.indexAsset = &types.Asset{
+	state.IndexAsset = &types.Asset{
 		Content: content,
 		Brotli:  buf.Bytes(),
 		Mime:    "text/html; charset=utf-8",
-		Etag:    s.serverEtag,
+		Etag:    state.ServerEtag,
 	}
 }
 
 func (s *Store) GetAsset(path string) *types.Asset {
-	s.RLock()
-	defer s.RUnlock()
 	if path == "/" || path == "/index.html" {
-		return s.indexAsset
+		state := s.state.Load()
+		if state == nil {
+			return nil
+		}
+		return state.IndexAsset
 	}
 	return s.assets[path]
 }
 
 func (s *Store) GetServerList() ([]byte, string) {
-	s.RLock()
-	defer s.RUnlock()
-	return s.serverJson, s.serverEtag
+	state := s.state.Load()
+	if state == nil {
+		return nil, ""
+	}
+	return state.ServerJson, state.ServerEtag
 }
 
 func (s *Store) GetServer(name string) (types.ProcessedServer, bool) {
-	s.RLock()
-	defer s.RUnlock()
-	v, ok := s.servers[name]
+	state := s.state.Load()
+	if state == nil {
+		return types.ProcessedServer{}, false
+	}
+	v, ok := state.Servers[name]
 	return v, ok
 }
 
 func (s *Store) GetKey(id int) (string, bool) {
-	s.RLock()
-	defer s.RUnlock()
-	v, ok := s.keys[id]
+	state := s.state.Load()
+	if state == nil {
+		return "", false
+	}
+	v, ok := state.Keys[id]
 	return v, ok
 }
 
 func (s *Store) GetBatch(country, city string) []types.ProcessedServer {
-	s.RLock()
-	defer s.RUnlock()
+	state := s.state.Load()
+	if state == nil {
+		return nil
+	}
 
 	cKey := normalize(country)
 	tKey := normalize(city)
 
 	if cKey == "" {
-		results := make([]types.ProcessedServer, 0, len(s.servers))
-		for _, srv := range s.servers {
+		results := make([]types.ProcessedServer, 0, len(state.Servers))
+		for _, srv := range state.Servers {
 			results = append(results, srv)
 		}
 		return results
 	}
 
-	cities, ok := s.regionIndex[cKey]
+	cities, ok := state.RegionIndex[cKey]
 	if !ok {
 		return nil
 	}
 
 	if tKey == "" {
 		var count int
-		for _, names := range cities {
-			count += len(names)
+		for _, srvs := range cities {
+			count += len(srvs)
 		}
 		results := make([]types.ProcessedServer, 0, count)
-		for _, names := range cities {
-			for _, name := range names {
-				if srv, exists := s.servers[name]; exists {
-					results = append(results, srv)
-				}
-			}
+		for _, srvs := range cities {
+			results = append(results, srvs...)
 		}
 		return results
 	}
 
-	if names, ok := cities[tKey]; ok {
-		results := make([]types.ProcessedServer, 0, len(names))
-		for _, name := range names {
-			if srv, exists := s.servers[name]; exists {
-				results = append(results, srv)
-			}
-		}
-		return results
+	if srvs, ok := cities[tKey]; ok {
+		return srvs
 	}
 
 	return nil

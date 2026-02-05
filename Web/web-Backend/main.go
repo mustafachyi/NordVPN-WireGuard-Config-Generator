@@ -1,7 +1,6 @@
 package main
 
 import (
-	"archive/zip"
 	"bufio"
 	"encoding/json"
 	"fmt"
@@ -18,6 +17,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/compress"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
+	"github.com/klauspost/compress/zip"
 	"github.com/skip2/go-qrcode"
 )
 
@@ -240,7 +240,7 @@ func main() {
 		c.Set("Cache-Control", "no-store")
 
 		if outputType == "text" {
-			return c.SendString(confContent)
+			return c.Send(confContent)
 		}
 
 		num := extractFirstNumber(srv.Name)
@@ -252,10 +252,10 @@ func main() {
 		if outputType == "file" {
 			c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fname))
 			c.Set("Content-Type", "application/x-wireguard-config")
-			return c.SendString(confContent)
+			return c.Send(confContent)
 		}
 
-		png, err := qrcode.Encode(confContent, qrcode.Medium, 256)
+		png, err := qrcode.Encode(string(confContent), qrcode.Medium, 256)
 		if err != nil {
 			return c.SendStatus(500)
 		}
@@ -350,8 +350,7 @@ func main() {
 					continue
 				}
 
-				conf := wg.Build(srv, pk, cfg)
-				f.Write([]byte(conf))
+				wg.WriteConfig(f, srv, pk, cfg)
 			}
 		})
 
