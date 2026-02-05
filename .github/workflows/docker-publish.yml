@@ -1,8 +1,6 @@
-name: Publish Docker Image from PyPI
+name: Publish Docker Image
 
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
@@ -12,12 +10,30 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Generate Dockerfile for PyPI release
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate CLI Dockerfile
         run: |
-          echo "FROM python:3.11-slim-bookworm" > pypi.Dockerfile
-          echo "WORKDIR /data" >> pypi.Dockerfile
-          echo "RUN pip install --no-cache-dir nord-config-generator" >> pypi.Dockerfile
-          echo "ENTRYPOINT [\"nordgen\"]" >> pypi.Dockerfile
+          cat <<EOF > cli.Dockerfile
+          FROM golang:1.25.6-alpine3.23 AS builder
+          WORKDIR /build
+          RUN apk add --no-cache ca-certificates
+          RUN adduser --disabled-password --gecos "" --home "/nonexistent" --shell "/sbin/nologin" --no-create-home --uid 10001 appuser
+          COPY nordgen-go/go.mod nordgen-go/go.sum ./
+          RUN go mod download
+          COPY nordgen-go/ .
+          RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -trimpath -o nordgen ./cmd/nordgen
+
+          FROM scratch
+          COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+          COPY --from=builder /etc/passwd /etc/passwd
+          COPY --from=builder /etc/group /etc/group
+          COPY --from=builder /build/nordgen /nordgen
+          USER appuser
+          WORKDIR /data
+          ENTRYPOINT ["/nordgen"]
+          EOF
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -29,6 +45,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./pypi.Dockerfile
+          file: ./cli.Dockerfile
           push: true
           tags: mustafachyi/nordgen:latest
