@@ -22,24 +22,28 @@ pip install nord-config-generator
 
 ## Docker Execution
 
-For a dependency-free environment, the application can be executed via Docker.
+For a dependency-free environment, the application can be executed via Docker. To prevent filesystem permission conflicts and ensure generated configurations are owned by the host user, the output directory **must** be created manually before execution.
 
 ### Method 1: Docker Compose (Recommended)
 
-1.  Create a `docker-compose.yml` file:
+1.  **Initialize the output directory:**
+    ```bash
+    mkdir -p generated_configs
+    ```
 
+2.  **Create a `docker-compose.yml` file:**
     ```yaml
     services:
       nordgen:
         image: mustafachyi/nordgen:latest
         stdin_open: true
         tty: true
+        user: "${UID:-1000}:${GID:-1000}"
         volumes:
           - ./generated_configs:/data
     ```
 
-2.  Execute the container:
-
+3.  **Execute the container:**
     ```sh
     docker-compose run --rm nordgen
     ```
@@ -48,17 +52,17 @@ For a dependency-free environment, the application can be executed via Docker.
 
 **Linux / macOS:**
 ```sh
-docker run -it --rm -v "$(pwd)/generated_configs:/data" mustafachyi/nordgen:latest
+mkdir -p generated_configs && docker run -it --rm -u $(id -u):$(id -g) -v "$(pwd)/generated_configs:/data" mustafachyi/nordgen:latest
 ```
 
 **Windows (PowerShell):**
 ```sh
-docker run -it --rm -v "${PWD}/generated_configs:/data" mustafachyi/nordgen:latest
+if (!(Test-Path "generated_configs")) { mkdir generated_configs }; docker run -it --rm -v "${PWD}/generated_configs:/data" mustafachyi/nordgen:latest
 ```
 
 **Windows (Command Prompt):**
 ```sh
-docker run -it --rm -v "%cd%/generated_configs:/data" mustafachyi/nordgen:latest
+if not exist "generated_configs" mkdir "generated_configs" && docker run -it --rm -v "%cd%/generated_configs:/data" mustafachyi/nordgen:latest
 ```
 
 ## Usage Guide
