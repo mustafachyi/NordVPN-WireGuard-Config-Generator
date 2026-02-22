@@ -71,6 +71,9 @@ type ProcessedServer struct {
 	Country  string
 	City     string
 	Code     string
+	LowCode  string
+	Number   string
+	FileName string
 	KeyID    int
 }
 

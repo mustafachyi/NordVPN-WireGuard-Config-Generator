@@ -2,9 +2,9 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,7 +14,6 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/gofiber/fiber/v3"
-	"github.com/gofiber/fiber/v3/middleware/compress"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/limiter"
 	"github.com/klauspost/compress/zip"
@@ -164,38 +163,6 @@ func validateBatch(b types.BatchConfigReq) (types.ValidatedConfig, string) {
 	return cfg, ""
 }
 
-func sanitizeFilename(s string) string {
-	b := make([]byte, 0, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
-			b = append(b, c)
-		} else if c == ' ' {
-			b = append(b, '_')
-		}
-	}
-	return string(b)
-}
-
-func extractFirstNumber(s string) string {
-	start := -1
-	for i := 0; i < len(s); i++ {
-		if s[i] >= '0' && s[i] <= '9' {
-			if start == -1 {
-				start = i
-			}
-		} else {
-			if start != -1 {
-				return s[start:i]
-			}
-		}
-	}
-	if start != -1 {
-		return s[start:]
-	}
-	return ""
-}
-
 func originGuard(c fiber.Ctx) error {
 	host := c.Hostname()
 	origin := c.Get("Origin")
@@ -222,6 +189,126 @@ func originGuard(c fiber.Ctx) error {
 	return c.Next()
 }
 
+func serveAsset(c fiber.Ctx, asset *types.Asset, cacheTier string) error {
+	if c.Get("if-none-match") == asset.Etag {
+		return c.SendStatus(304)
+	}
+
+	c.Set("ETag", asset.Etag)
+	c.Set("Content-Type", asset.Mime)
+	c.Set("Cache-Control", cacheTier)
+
+	if asset.Brotli != nil && strings.Contains(c.Get("accept-encoding"), "br") {
+		c.Set("Content-Encoding", "br")
+		return c.Send(asset.Brotli)
+	}
+	return c.Send(asset.Content)
+}
+
+func buildBatchPath(batchCountry, batchCity string, srv types.ProcessedServer) string {
+	if batchCountry == "" {
+		size := len(srv.Country) + len(srv.City) + len(srv.FileName) + 2
+		buf := make([]byte, 0, size)
+		buf = append(buf, srv.Country...)
+		buf = append(buf, '/')
+		buf = append(buf, srv.City...)
+		buf = append(buf, '/')
+		buf = append(buf, srv.FileName...)
+		return string(buf)
+	}
+	if batchCity == "" {
+		size := len(srv.City) + len(srv.FileName) + 1
+		buf := make([]byte, 0, size)
+		buf = append(buf, srv.City...)
+		buf = append(buf, '/')
+		buf = append(buf, srv.FileName...)
+		return string(buf)
+	}
+	return srv.FileName
+}
+
+func sanitizeFilename(s string) string {
+	b := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+			b = append(b, c)
+		} else if c == ' ' {
+			b = append(b, '_')
+		}
+	}
+	return string(b)
+}
+
+func buildBaseName(country, city string) string {
+	if country == "" {
+		return "NordVPN_All"
+	}
+	sc := sanitizeFilename(country)
+	if city == "" {
+		buf := make([]byte, 0, 8+len(sc))
+		buf = append(buf, "NordVPN_"...)
+		buf = append(buf, sc...)
+		return string(buf)
+	}
+	scity := sanitizeFilename(city)
+	buf := make([]byte, 0, 9+len(sc)+len(scity))
+	buf = append(buf, "NordVPN_"...)
+	buf = append(buf, sc...)
+	buf = append(buf, '_')
+	buf = append(buf, scity...)
+	return string(buf)
+}
+
+func buildDisposition(name string) string {
+	buf := make([]byte, 0, 24+len(name))
+	buf = append(buf, `attachment; filename="`...)
+	buf = append(buf, name...)
+	buf = append(buf, `.nord"`...)
+	return string(buf)
+}
+
+func buildConfDisposition(code, num string) string {
+	buf := make([]byte, 0, 24+len(code)+len(num)+5)
+	buf = append(buf, `attachment; filename="`...)
+	buf = append(buf, code...)
+	buf = append(buf, num...)
+	buf = append(buf, `.conf"`...)
+	return string(buf)
+}
+
+func dedup(path string, usedPaths map[string]int) string {
+	val, exists := usedPaths[path]
+	if !exists {
+		usedPaths[path] = 0
+		return path
+	}
+
+	base := path[:len(path)-5]
+	idx := val
+	if idx == 0 {
+		idx = 1
+	}
+
+	baseBuf := make([]byte, 0, len(base)+12)
+	baseBuf = append(baseBuf, base...)
+	baseBuf = append(baseBuf, '_')
+	prefixLen := len(baseBuf)
+
+	for {
+		baseBuf = baseBuf[:prefixLen]
+		baseBuf = strconv.AppendInt(baseBuf, int64(idx), 10)
+		baseBuf = append(baseBuf, '.', 'c', 'o', 'n', 'f')
+		candidate := string(baseBuf)
+		idx++
+		if _, occupied := usedPaths[candidate]; !occupied {
+			usedPaths[path] = idx
+			usedPaths[candidate] = 0
+			return candidate
+		}
+	}
+}
+
 func main() {
 	store.Core.Init()
 
@@ -234,7 +321,6 @@ func main() {
 	})
 
 	app.Use(cors.New())
-	app.Use(compress.New())
 
 	api := app.Group("/api")
 	api.Use(originGuard)
@@ -339,24 +425,16 @@ func main() {
 		c.Set("Cache-Control", "no-store")
 
 		if outputType == "text" {
-			confContent := wg.Build(srv, pk, cfg)
-			return c.Send(confContent)
+			return c.Send(wg.Build(srv, pk, cfg))
 		}
 
 		if outputType == "file" {
-			confContent := wg.Build(srv, pk, cfg)
-			num := extractFirstNumber(srv.Name)
-			if num == "" {
-				num = "wg"
-			}
-			fname := fmt.Sprintf("%s%s.conf", strings.ToLower(srv.Code), num)
-			c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fname))
+			c.Set("Content-Disposition", buildConfDisposition(srv.LowCode, srv.Number))
 			c.Set("Content-Type", "application/x-wireguard-config")
-			return c.Send(confContent)
+			return c.Send(wg.Build(srv, pk, cfg))
 		}
 
-		confContent := wg.Build(srv, pk, cfg)
-		png, err := qrcode.Encode(string(confContent), qrcode.Medium, 256)
+		png, err := qrcode.Encode(string(wg.Build(srv, pk, cfg)), qrcode.Medium, 256)
 		if err != nil {
 			return c.SendStatus(500)
 		}
@@ -384,23 +462,17 @@ func main() {
 			return c.Status(404).JSON(fiber.Map{"error": "No servers found"})
 		}
 
-		baseName := "NordVPN_All"
-		if body.Country != "" {
-			baseName = "NordVPN_" + sanitizeFilename(body.Country)
-			if body.City != "" {
-				baseName += "_" + sanitizeFilename(body.City)
-			}
-		}
+		baseName := buildBaseName(body.Country, body.City)
 
 		c.Set("Content-Type", "application/octet-stream")
-		c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.nord"`, baseName))
+		c.Set("Content-Disposition", buildDisposition(baseName))
 		c.Set("Cache-Control", "no-store")
 
 		c.RequestCtx().SetBodyStreamWriter(func(w *bufio.Writer) {
 			zw := zip.NewWriter(w)
 			defer zw.Close()
 
-			usedPaths := make(map[string]int)
+			usedPaths := make(map[string]int, len(servers))
 
 			for _, srv := range servers {
 				pk, ok := store.Core.GetKey(srv.KeyID)
@@ -408,40 +480,8 @@ func main() {
 					continue
 				}
 
-				num := extractFirstNumber(srv.Name)
-				if num == "" {
-					num = "wg"
-				}
-				fName := fmt.Sprintf("%s%s.conf", strings.ToLower(srv.Code), num)
-
-				var path string
-				if body.Country == "" {
-					path = fmt.Sprintf("%s/%s/%s", srv.Country, srv.City, fName)
-				} else if body.City == "" {
-					path = fmt.Sprintf("%s/%s", srv.City, fName)
-				} else {
-					path = fName
-				}
-
-				if val, exists := usedPaths[path]; exists {
-					originalPath := path
-					base := originalPath[:len(originalPath)-5]
-					idx := val
-					if idx == 0 {
-						idx = 1
-					}
-					for {
-						candidate := fmt.Sprintf("%s_%d.conf", base, idx)
-						idx++
-						if _, occupied := usedPaths[candidate]; !occupied {
-							path = candidate
-							usedPaths[originalPath] = idx
-							break
-						}
-					}
-				}
-
-				usedPaths[path] = 0
+				path := buildBatchPath(body.Country, body.City, srv)
+				path = dedup(path, usedPaths)
 
 				f, err := zw.CreateHeader(&zip.FileHeader{
 					Name:   path,
@@ -466,32 +506,19 @@ func main() {
 			if strings.HasPrefix(path, "/api") {
 				return c.Status(404).JSON(fiber.Map{"message": "Endpoint not found"})
 			}
-			asset = store.Core.GetAsset("/index.html")
+			asset = store.Core.GetAsset("/")
 			if asset != nil {
-				c.Set("Content-Type", "text/html")
-				return c.Send(asset.Content)
+				return serveAsset(c, asset, "public, max-age=300")
 			}
 			return c.SendStatus(404)
 		}
-
-		if c.Get("if-none-match") == asset.Etag {
-			return c.SendStatus(304)
-		}
-
-		c.Set("ETag", asset.Etag)
-		c.Set("Content-Type", asset.Mime)
 
 		cc := "public, max-age=300"
 		if strings.HasPrefix(path, "/assets") {
 			cc = "public, max-age=31536000, immutable"
 		}
-		c.Set("Cache-Control", cc)
 
-		if asset.Brotli != nil && strings.Contains(c.Get("accept-encoding"), "br") {
-			c.Set("Content-Encoding", "br")
-			return c.Send(asset.Brotli)
-		}
-		return c.Send(asset.Content)
+		return serveAsset(c, asset, cc)
 	})
 
 	app.Listen(":3000")

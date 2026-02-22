@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,19 @@ const (
 	API_URL    = "https://api.nordvpn.com/v1/servers?limit=16384&filters[servers_technologies][identifier]=wireguard_udp"
 	PUBLIC_DIR = "./public"
 	REFRESH    = 5 * time.Minute
+)
+
+var (
+	refreshClient = &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        10,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+
+	bodyClose = []byte("</body>")
 )
 
 type State struct {
@@ -101,14 +115,79 @@ func (s *Store) loadAssets(dir string) error {
 			mimeType = "application/octet-stream"
 		}
 
+		etag := buildEtag(len(content), time.Now().UnixMilli())
+
 		s.assets[webPath] = &types.Asset{
 			Content: content,
 			Brotli:  brContent,
 			Mime:    mimeType,
-			Etag:    fmt.Sprintf(`W/"%x-%x"`, len(content), time.Now().UnixMilli()),
+			Etag:    etag,
 		}
 	}
 	return nil
+}
+
+func buildEtag(size int, ts int64) string {
+	buf := make([]byte, 0, 32)
+	buf = append(buf, 'W', '/', '"')
+	buf = strconv.AppendInt(buf, int64(size), 16)
+	buf = append(buf, '-')
+	buf = strconv.AppendInt(buf, ts, 16)
+	buf = append(buf, '"')
+	return string(buf)
+}
+
+func buildServerEtag(ts int64) string {
+	buf := make([]byte, 0, 24)
+	buf = append(buf, 'W', '/', '"')
+	buf = strconv.AppendInt(buf, ts, 16)
+	buf = append(buf, '"')
+	return string(buf)
+}
+
+func toLower(s string) string {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			b := make([]byte, len(s))
+			copy(b, s[:i])
+			for ; i < len(s); i++ {
+				c := s[i]
+				if c >= 'A' && c <= 'Z' {
+					c += 32
+				}
+				b[i] = c
+			}
+			return string(b)
+		}
+	}
+	return s
+}
+
+func extractNumber(s string) string {
+	start := -1
+	for i := 0; i < len(s); i++ {
+		if s[i] >= '0' && s[i] <= '9' {
+			if start == -1 {
+				start = i
+			}
+		} else {
+			if start != -1 {
+				return s[start:i]
+			}
+		}
+	}
+	if start != -1 {
+		return s[start:]
+	}
+	return ""
+}
+
+func buildFileName(lowCode, number string) string {
+	buf := make([]byte, 0, len(lowCode)+len(number)+5)
+	buf = append(buf, lowCode...)
+	buf = append(buf, number...)
+	buf = append(buf, '.', 'c', 'o', 'n', 'f')
+	return string(buf)
 }
 
 func normalize(s string) string {
@@ -188,7 +267,7 @@ func validateVersion(v string) bool {
 }
 
 func (s *Store) updateServers() {
-	resp, err := http.Get(API_URL)
+	resp, err := refreshClient.Get(API_URL)
 	if err != nil {
 		return
 	}
@@ -279,6 +358,13 @@ func (s *Store) updateServers() {
 		country := intern(normalize(loc.Country.Name))
 		city := intern(normalize(loc.Country.City.Name))
 		code := intern(loc.Country.Code)
+		lowCode := intern(toLower(code))
+
+		num := extractNumber(name)
+		if num == "" {
+			num = "wg"
+		}
+		fileName := buildFileName(lowCode, num)
 
 		processed := types.ProcessedServer{
 			Name:     name,
@@ -287,6 +373,9 @@ func (s *Store) updateServers() {
 			Country:  country,
 			City:     city,
 			Code:     code,
+			LowCode:  lowCode,
+			Number:   num,
+			FileName: fileName,
 			KeyID:    id,
 		}
 
@@ -303,7 +392,7 @@ func (s *Store) updateServers() {
 
 	jsonData, _ := sonic.Marshal(payload)
 	state.ServerJson = jsonData
-	state.ServerEtag = fmt.Sprintf(`W/"%s"`, strings.Trim(fmt.Sprintf("%x", time.Now().UnixNano()), "-"))
+	state.ServerEtag = buildServerEtag(time.Now().UnixNano())
 
 	s.rebuildIndex(state)
 	s.state.Store(state)
@@ -313,9 +402,17 @@ func (s *Store) rebuildIndex(state *State) {
 	if s.indexRaw == nil {
 		return
 	}
-	script := fmt.Sprintf(`<script id="server-data" type="application/json">%s</script>`, state.ServerJson)
-	htmlStr := strings.Replace(string(s.indexRaw), "</body>", script+"</body>", 1)
-	content := []byte(htmlStr)
+
+	scriptPrefix := []byte(`<script id="server-data" type="application/json">`)
+	scriptSuffix := []byte(`</script>`)
+
+	injection := make([]byte, 0, len(scriptPrefix)+len(state.ServerJson)+len(scriptSuffix)+len(bodyClose))
+	injection = append(injection, scriptPrefix...)
+	injection = append(injection, state.ServerJson...)
+	injection = append(injection, scriptSuffix...)
+	injection = append(injection, bodyClose...)
+
+	content := bytes.Replace(s.indexRaw, bodyClose, injection, 1)
 
 	var buf bytes.Buffer
 	w := brotli.NewWriterLevel(&buf, brotli.BestCompression)
