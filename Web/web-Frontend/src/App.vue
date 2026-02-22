@@ -126,7 +126,7 @@ watch([srv.fCountry, srv.fCity], observe)
 <template>
   <Toast v-if="notif.toast.value" :msg="notif.toast.value.message" :type="notif.toast.value.type" @close="notif.toast.value = null" />
 
-  <div v-if="ui.modals.value.qr" class="fixed inset-0 z-[100] flex items-center justify-center p-4" @click="ui.modals.value.qr = false">
+  <div v-if="ui.modals.value.qr" class="fixed inset-0 z-100 flex items-center justify-center p-4" @click="ui.modals.value.qr = false">
     <div class="fixed inset-0 bg-nord-bg-overlay" />
     <div class="relative bg-vscode-bg rounded-lg border border-vscode-active overflow-hidden max-w-sm w-full" @click.stop>
       <div class="bg-nord-bg-overlay-light px-3 py-1.5 text-xs font-medium border-b border-vscode-active flex items-center justify-between text-nord-text-primary">
@@ -134,7 +134,7 @@ watch([srv.fCountry, srv.fCity], observe)
         <button @click="ui.modals.value.qr = false" class="p-1 rounded hover:bg-nord-bg-hover"><Icon name="close" class="w-3.5 h-3.5" /></button>
       </div>
       <div class="p-6 flex justify-center">
-        <img :src="ui.qrUrl.value" class="w-[200px] h-[200px] rounded">
+        <img :src="ui.qrUrl.value" class="w-50 h-50 rounded">
       </div>
     </div>
   </div>
@@ -149,11 +149,11 @@ watch([srv.fCountry, srv.fCity], observe)
         <nav class="flex items-center gap-2 flex-1">
           <button @click="ui.toggle" class="shrink-0 p-2 flex items-center justify-center rounded hover:bg-nord-bg-hover"><Icon name="menu" class="w-5 h-5" /></button>
           <div class="flex-1 flex gap-2" @click="ui.close">
-            <select v-model="srv.fCountry.value" class="w-full bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm sm:w-[200px]">
+            <select v-model="srv.fCountry.value" class="w-full bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm sm:w-50">
               <option value="">All Countries</option>
               <option v-for="c in srv.countries.value" :key="c.id" :value="c.id">{{ c.name }}</option>
             </select>
-            <div v-if="srv.fCountry.value" class="w-full sm:w-[200px]">
+            <div v-if="srv.fCountry.value" class="w-full sm:w-50">
               <select v-model="srv.fCity.value" :disabled="srv.cities.value.length < 2" class="w-full bg-vscode-bg border border-vscode-active rounded px-2 py-1.5 text-sm disabled:opacity-50">
                 <option v-if="srv.cities.value.length > 1" value="">All Cities</option>
                 <option v-for="c in srv.cities.value" :key="c.id" :value="c.id">{{ c.name }}</option>
@@ -161,17 +161,17 @@ watch([srv.fCountry, srv.fCity], observe)
             </div>
           </div>
         </nav>
-        <div class="sm:pl-0 pl-[calc(2.25rem+0.5rem)]">
+        <div class="sm:pl-0 pl-11">
           <div class="flex flex-wrap items-center justify-end gap-2 text-xs" @click="ui.close">
             <button @click="dlBatch" :disabled="dlLoading" class="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-1.5 rounded bg-nord-button-primary text-white font-semibold hover:bg-nord-button-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
               <div v-if="dlLoading" class="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
               <Icon v-else name="archive" class="w-4 h-4" />
               <span class="whitespace-nowrap">{{ dlLabel }}</span>
             </button>
-            <button @click="srv.toggleSort('load')" class="flex-1 sm:flex-none flex items-center justify-center gap-1 sm:min-w-[80px] px-2 sm:px-3 py-1.5 rounded border font-semibold transition-colors" :class="srv.sortKey.value === 'load' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active hover:bg-nord-bg-hover'">
+            <button @click="srv.toggleSort('load')" class="flex-1 sm:flex-none flex items-center justify-center gap-1 sm:min-w-20 px-2 sm:px-3 py-1.5 rounded border font-semibold transition-colors" :class="srv.sortKey.value === 'load' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active hover:bg-nord-bg-hover'">
               <span>Load</span><Icon v-if="srv.sortKey.value === 'load'" :name="srv.sortOrd.value === 'asc' ? 'sortAsc' : 'sortDesc'" class="w-4 h-4" />
             </button>
-            <button @click="srv.toggleSort('name')" class="flex-1 sm:flex-none flex items-center justify-center gap-1 sm:min-w-[80px] px-2 sm:px-3 py-1.5 rounded border font-semibold transition-colors" :class="srv.sortKey.value === 'name' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active hover:bg-nord-bg-hover'">
+            <button @click="srv.toggleSort('name')" class="flex-1 sm:flex-none flex items-center justify-center gap-1 sm:min-w-20 px-2 sm:px-3 py-1.5 rounded border font-semibold transition-colors" :class="srv.sortKey.value === 'name' ? 'bg-nord-bg-active border-vscode-accent text-white' : 'border-vscode-active hover:bg-nord-bg-hover'">
               <span>A-Z</span><Icon v-if="srv.sortKey.value === 'name'" :name="srv.sortOrd.value === 'asc' ? 'sortAsc' : 'sortDesc'" class="w-4 h-4" />
             </button>
             <div class="px-3 py-1.5 rounded bg-vscode-bg/50 border border-vscode-active/50"><span class="text-xs text-nord-text-secondary font-semibold">{{ srv.total }}</span></div>
@@ -181,7 +181,7 @@ watch([srv.fCountry, srv.fCity], observe)
     </header>
 
     <div class="fixed inset-0 bg-nord-bg-overlay/30 z-30 transition-opacity" :class="ui.panel.value ? 'opacity-100' : 'opacity-0 pointer-events-none'" @click="ui.close" />
-    <aside class="fixed inset-y-0 left-0 w-1/2 sm:w-[252px] bg-vscode-header border-r border-vscode-active z-40 transition-transform flex flex-col" :class="ui.panel.value ? 'translate-x-0' : '-translate-x-full'">
+    <aside class="fixed inset-y-0 left-0 w-1/2 sm:w-63 bg-vscode-header border-r border-vscode-active z-40 transition-transform flex flex-col" :class="ui.panel.value ? 'translate-x-0' : '-translate-x-full'">
       <div :style="{ height: headerHeight + 'px' }" class="shrink-0 bg-vscode-header transition-[height]" />
       <div class="flex-1 overflow-y-auto p-4 space-y-3">
         <button @click="ui.openCustom" class="w-full px-2 sm:px-4 py-2 rounded border border-vscode-active bg-nord-bg-overlay/20 text-xs sm:text-sm hover:bg-nord-bg-hover"><div class="flex items-center gap-1.5 sm:gap-2"><Icon name="settings" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-vscode-accent" /><span>Customize</span></div></button>
@@ -189,7 +189,7 @@ watch([srv.fCountry, srv.fCity], observe)
         <label class="flex items-center justify-between cursor-pointer group mt-4 select-none">
           <span class="text-xs sm:text-sm font-medium text-nord-text-primary">Show IP</span>
           <button type="button" @click="ui.showIp.value = !ui.showIp.value" class="relative w-8 h-4 sm:w-10 sm:h-5 rounded-full transition-colors" :class="ui.showIp.value ? 'bg-nord-button-primary' : 'bg-nord-button-secondary'">
-            <span class="absolute left-0.5 top-0.5 w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-white transition-transform" :class="ui.showIp.value ? 'translate-x-[16px] sm:translate-x-[18px]' : ''" />
+            <span class="absolute left-0.5 top-0.5 w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-white transition-transform" :class="ui.showIp.value ? 'translate-x-4 sm:translate-x-4.5' : ''" />
           </button>
         </label>
       </div>

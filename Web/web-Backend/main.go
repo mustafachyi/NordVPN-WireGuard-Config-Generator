@@ -2,10 +2,9 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -13,43 +12,100 @@ import (
 	"nordgen/internal/types"
 	"nordgen/internal/wg"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/compress"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/limiter"
+	"github.com/bytedance/sonic"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/compress"
+	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/limiter"
 	"github.com/klauspost/compress/zip"
 	"github.com/skip2/go-qrcode"
 )
 
-var (
-	rxToken = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
-	rxKey   = regexp.MustCompile(`^[A-Za-z0-9+/]{43}=$`)
-	rxIPv4  = regexp.MustCompile(`^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$`)
+var httpClient = &http.Client{
+	Timeout: 10 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 100,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
 
-	httpClient = &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 100,
-			IdleConnTimeout:     90 * time.Second,
-		},
+func isHex(s string) bool {
+	if len(s) != 64 {
+		return false
 	}
-)
+	for i := 0; i < 64; i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func isKey(s string) bool {
+	if len(s) != 44 {
+		return false
+	}
+	if s[43] != '=' {
+		return false
+	}
+	for i := 0; i < 43; i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '+' || c == '/') {
+			return false
+		}
+	}
+	return true
+}
+
+func isIPv4(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	dots := 0
+	num := 0
+	hasNum := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '.' {
+			if !hasNum || num > 255 {
+				return false
+			}
+			dots++
+			num = 0
+			hasNum = false
+		} else if c >= '0' && c <= '9' {
+			num = num*10 + int(c-'0')
+			if num > 255 {
+				return false
+			}
+			hasNum = true
+		} else {
+			return false
+		}
+	}
+	return dots == 3 && hasNum && num <= 255
+}
 
 func parseCommon(key, dns, endpoint string, keepAlive *int) (types.ValidatedConfig, []string) {
 	var errs []string
-	if key != "" && !rxKey.MatchString(key) {
+	if key != "" && !isKey(key) {
 		errs = append(errs, "Invalid Private Key")
 	}
 
 	cleanDns := "103.86.96.100"
 	if dns != "" {
-		parts := strings.Split(dns, ",")
 		valid := true
-		for _, p := range parts {
-			if !rxIPv4.MatchString(strings.TrimSpace(p)) {
-				valid = false
-				break
+		start := 0
+		for i := 0; i <= len(dns); i++ {
+			if i == len(dns) || dns[i] == ',' {
+				part := strings.TrimSpace(dns[start:i])
+				if !isIPv4(part) {
+					valid = false
+					break
+				}
+				start = i + 1
 			}
 		}
 		if !valid {
@@ -109,16 +165,16 @@ func validateBatch(b types.BatchConfigReq) (types.ValidatedConfig, string) {
 }
 
 func sanitizeFilename(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, c := range s {
+	b := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
 		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
-			b.WriteRune(c)
+			b = append(b, c)
 		} else if c == ' ' {
-			b.WriteByte('_')
+			b = append(b, '_')
 		}
 	}
-	return b.String()
+	return string(b)
 }
 
 func extractFirstNumber(s string) string {
@@ -140,13 +196,18 @@ func extractFirstNumber(s string) string {
 	return ""
 }
 
-func originGuard(c *fiber.Ctx) error {
+func originGuard(c fiber.Ctx) error {
 	host := c.Hostname()
 	origin := c.Get("Origin")
 	referer := c.Get("Referer")
 
 	if origin != "" {
-		cleanOrg := strings.TrimPrefix(strings.TrimPrefix(origin, "https://"), "http://")
+		cleanOrg := origin
+		if strings.HasPrefix(cleanOrg, "https://") {
+			cleanOrg = cleanOrg[8:]
+		} else if strings.HasPrefix(cleanOrg, "http://") {
+			cleanOrg = cleanOrg[7:]
+		}
 		if cleanOrg != host && !strings.HasPrefix(cleanOrg, host+":") {
 			return c.Status(403).JSON(fiber.Map{"error": "Forbidden Origin"})
 		}
@@ -165,9 +226,11 @@ func main() {
 	store.Core.Init()
 
 	app := fiber.New(fiber.Config{
-		DisableStartupMessage: false,
-		BodyLimit:             4 * 1024 * 1024,
-		ProxyHeader:           "X-Forwarded-For",
+		BodyLimit:    4 * 1024 * 1024,
+		ProxyHeader:  "X-Forwarded-For",
+		JSONEncoder:  sonic.Marshal,
+		JSONDecoder:  sonic.Unmarshal,
+		ErrorHandler: nil,
 	})
 
 	app.Use(cors.New())
@@ -179,7 +242,7 @@ func main() {
 	stdLimiter := limiter.New(limiter.Config{
 		Max:        100,
 		Expiration: 1 * time.Minute,
-		KeyGenerator: func(c *fiber.Ctx) string {
+		KeyGenerator: func(c fiber.Ctx) string {
 			return c.IP()
 		},
 	})
@@ -187,15 +250,15 @@ func main() {
 	heavyLimiter := limiter.New(limiter.Config{
 		Max:        5,
 		Expiration: 1 * time.Minute,
-		KeyGenerator: func(c *fiber.Ctx) string {
+		KeyGenerator: func(c fiber.Ctx) string {
 			return c.IP()
 		},
-		LimitReached: func(c *fiber.Ctx) error {
+		LimitReached: func(c fiber.Ctx) error {
 			return c.Status(429).JSON(fiber.Map{"error": "Rate limit exceeded for batch generation"})
 		},
 	})
 
-	api.Get("/servers", stdLimiter, func(c *fiber.Ctx) error {
+	api.Get("/servers", stdLimiter, func(c fiber.Ctx) error {
 		data, etag := store.Core.GetServerList()
 		if data == nil {
 			return c.Status(503).JSON(fiber.Map{"error": "Initializing"})
@@ -209,15 +272,15 @@ func main() {
 		return c.Send(data)
 	})
 
-	api.Post("/key", stdLimiter, func(c *fiber.Ctx) error {
+	api.Post("/key", stdLimiter, func(c fiber.Ctx) error {
 		var body struct {
 			Token string `json:"token"`
 		}
-		if err := c.BodyParser(&body); err != nil {
+		if err := sonic.Unmarshal(c.Body(), &body); err != nil {
 			return c.SendStatus(400)
 		}
 
-		if !rxToken.MatchString(body.Token) {
+		if !isHex(body.Token) {
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid token"})
 		}
 
@@ -237,19 +300,24 @@ func main() {
 			return c.Status(503).JSON(fiber.Map{"error": "Upstream error"})
 		}
 
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return c.SendStatus(500)
+		}
+
 		var data struct {
 			Key string `json:"nordlynx_private_key"`
 		}
-		if json.NewDecoder(resp.Body).Decode(&data) != nil {
+		if sonic.Unmarshal(respBody, &data) != nil {
 			return c.SendStatus(500)
 		}
 
 		return c.JSON(fiber.Map{"key": data.Key})
 	})
 
-	handleConfig := func(c *fiber.Ctx, outputType string) error {
+	handleConfig := func(c fiber.Ctx, outputType string) error {
 		var body types.ConfigRequest
-		if err := c.BodyParser(&body); err != nil {
+		if err := sonic.Unmarshal(c.Body(), &body); err != nil {
 			return c.SendStatus(400)
 		}
 
@@ -268,25 +336,26 @@ func main() {
 			return c.Status(500).JSON(fiber.Map{"error": "Key missing"})
 		}
 
-		confContent := wg.Build(srv, pk, cfg)
 		c.Set("Cache-Control", "no-store")
 
 		if outputType == "text" {
+			confContent := wg.Build(srv, pk, cfg)
 			return c.Send(confContent)
 		}
 
-		num := extractFirstNumber(srv.Name)
-		if num == "" {
-			num = "wg"
-		}
-		fname := fmt.Sprintf("%s%s.conf", strings.ToLower(srv.Code), num)
-
 		if outputType == "file" {
+			confContent := wg.Build(srv, pk, cfg)
+			num := extractFirstNumber(srv.Name)
+			if num == "" {
+				num = "wg"
+			}
+			fname := fmt.Sprintf("%s%s.conf", strings.ToLower(srv.Code), num)
 			c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fname))
 			c.Set("Content-Type", "application/x-wireguard-config")
 			return c.Send(confContent)
 		}
 
+		confContent := wg.Build(srv, pk, cfg)
 		png, err := qrcode.Encode(string(confContent), qrcode.Medium, 256)
 		if err != nil {
 			return c.SendStatus(500)
@@ -295,13 +364,13 @@ func main() {
 		return c.Send(png)
 	}
 
-	api.Post("/config", stdLimiter, func(c *fiber.Ctx) error { return handleConfig(c, "text") })
-	api.Post("/config/download", stdLimiter, func(c *fiber.Ctx) error { return handleConfig(c, "file") })
-	api.Post("/config/qr", stdLimiter, func(c *fiber.Ctx) error { return handleConfig(c, "qr") })
+	api.Post("/config", stdLimiter, func(c fiber.Ctx) error { return handleConfig(c, "text") })
+	api.Post("/config/download", stdLimiter, func(c fiber.Ctx) error { return handleConfig(c, "file") })
+	api.Post("/config/qr", stdLimiter, func(c fiber.Ctx) error { return handleConfig(c, "qr") })
 
-	api.Post("/config/batch", heavyLimiter, func(c *fiber.Ctx) error {
+	api.Post("/config/batch", heavyLimiter, func(c fiber.Ctx) error {
 		var body types.BatchConfigReq
-		if err := c.BodyParser(&body); err != nil {
+		if err := sonic.Unmarshal(c.Body(), &body); err != nil {
 			return c.SendStatus(400)
 		}
 
@@ -327,7 +396,7 @@ func main() {
 		c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.nord"`, baseName))
 		c.Set("Cache-Control", "no-store")
 
-		c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		c.RequestCtx().SetBodyStreamWriter(func(w *bufio.Writer) {
 			zw := zip.NewWriter(w)
 			defer zw.Close()
 
@@ -389,7 +458,7 @@ func main() {
 		return nil
 	})
 
-	app.Use(func(c *fiber.Ctx) error {
+	app.Use(func(c fiber.Ctx) error {
 		path := c.Path()
 		asset := store.Core.GetAsset(path)
 

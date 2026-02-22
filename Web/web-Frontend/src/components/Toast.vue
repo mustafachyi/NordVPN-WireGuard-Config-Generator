@@ -28,7 +28,7 @@ onBeforeUnmount(() => { clearTimeout(t1); clearTimeout(t2) })
 </script>
 
 <template>
-  <div class="fixed bottom-4 right-4 z-[100] transition-[transform,opacity] duration-200" :class="[visible ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0', STYLES[type]]">
+  <div class="fixed bottom-4 right-4 z-100 transition-[transform,opacity] duration-200" :class="[visible ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0', STYLES[type]]">
     <div class="px-3 py-2 rounded border border-current shadow-lg flex items-center gap-3">
       <Icon :name="type === 'error' ? 'error' : 'check'" class="w-4 h-4 shrink-0" />
       <span class="text-sm">{{ msg }}</span>

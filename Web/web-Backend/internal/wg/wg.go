@@ -1,7 +1,6 @@
 package wg
 
 import (
-	"bytes"
 	"io"
 	"strconv"
 	"sync"
@@ -9,44 +8,72 @@ import (
 	"nordgen/internal/types"
 )
 
-var bufPool = sync.Pool{
-	New: func() interface{} {
-		return new(bytes.Buffer)
-	},
-}
+var (
+	headerStatic = []byte("[Interface]\nPrivateKey=")
+	addrStatic   = []byte("\nAddress=10.5.0.2/16\nDNS=")
+	peerStatic   = []byte("\n\n[Peer]\nPublicKey=")
+	allowStatic  = []byte("\nAllowedIPs=0.0.0.0/0,::/0\nEndpoint=")
+	portStatic   = []byte(":51820\nPersistentKeepalive=")
+
+	pool = sync.Pool{
+		New: func() interface{} {
+			b := make([]byte, 0, 1024)
+			return &b
+		},
+	}
+)
 
 func WriteConfig(w io.Writer, server types.ProcessedServer, pubKey string, opts types.ValidatedConfig) {
+	bufPtr := pool.Get().(*[]byte)
+	buf := *bufPtr
+	buf = buf[:0]
+
 	endpoint := server.Hostname
 	if opts.UseStation {
 		endpoint = server.Station
 	}
 
-	buf := bufPool.Get().(*bytes.Buffer)
-	buf.Reset()
-	defer bufPool.Put(buf)
+	buf = append(buf, headerStatic...)
+	buf = append(buf, opts.PrivateKey...)
+	buf = append(buf, addrStatic...)
+	buf = append(buf, opts.DNS...)
+	buf = append(buf, peerStatic...)
+	buf = append(buf, pubKey...)
+	buf = append(buf, allowStatic...)
+	buf = append(buf, endpoint...)
+	buf = append(buf, portStatic...)
+	buf = strconv.AppendInt(buf, int64(opts.KeepAlive), 10)
 
-	buf.WriteString("[Interface]\nPrivateKey=")
-	buf.WriteString(opts.PrivateKey)
-	buf.WriteString("\nAddress=10.5.0.2/16\nDNS=")
-	buf.WriteString(opts.DNS)
-	buf.WriteString("\n\n[Peer]\nPublicKey=")
-	buf.WriteString(pubKey)
-	buf.WriteString("\nAllowedIPs=0.0.0.0/0,::/0\nEndpoint=")
-	buf.WriteString(endpoint)
-	buf.WriteString(":51820\nPersistentKeepalive=")
-	buf.WriteString(strconv.Itoa(opts.KeepAlive))
+	w.Write(buf)
 
-	w.Write(buf.Bytes())
+	*bufPtr = buf
+	pool.Put(bufPtr)
 }
 
 func Build(server types.ProcessedServer, pubKey string, opts types.ValidatedConfig) []byte {
-	buf := bufPool.Get().(*bytes.Buffer)
-	buf.Reset()
-	defer bufPool.Put(buf)
+	endpoint := server.Hostname
+	if opts.UseStation {
+		endpoint = server.Station
+	}
 
-	WriteConfig(buf, server, pubKey, opts)
+	size := len(headerStatic) + len(opts.PrivateKey) +
+		len(addrStatic) + len(opts.DNS) +
+		len(peerStatic) + len(pubKey) +
+		len(allowStatic) + len(endpoint) +
+		len(portStatic) + 5
 
-	out := make([]byte, buf.Len())
-	copy(out, buf.Bytes())
-	return out
+	buf := make([]byte, 0, size)
+
+	buf = append(buf, headerStatic...)
+	buf = append(buf, opts.PrivateKey...)
+	buf = append(buf, addrStatic...)
+	buf = append(buf, opts.DNS...)
+	buf = append(buf, peerStatic...)
+	buf = append(buf, pubKey...)
+	buf = append(buf, allowStatic...)
+	buf = append(buf, endpoint...)
+	buf = append(buf, portStatic...)
+	buf = strconv.AppendInt(buf, int64(opts.KeepAlive), 10)
+
+	return buf
 }

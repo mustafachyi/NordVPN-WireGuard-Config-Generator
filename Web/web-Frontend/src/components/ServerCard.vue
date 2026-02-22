@@ -27,7 +27,7 @@ const copyIp = () => {
 </script>
 
 <template>
-  <article class="relative md:hover:z-10 p-2.5 bg-nord-bg-card border-l-2 border-transparent md:hover:border-nord-button-primary md:hover:bg-nord-bg-hover group transition-transform duration-150 md:hover:scale-[1.02] [will-change:transform]">
+  <article class="relative md:hover:z-10 p-2.5 bg-nord-bg-card border-l-2 border-transparent md:hover:border-nord-button-primary md:hover:bg-nord-bg-hover group transition-transform duration-150 md:hover:scale-[1.02] will-change-transform">
     <div class="flex justify-between items-start gap-2">
       <div class="min-w-0 flex-1">
         <h3 class="font-medium truncate">{{ s.dName }}</h3>

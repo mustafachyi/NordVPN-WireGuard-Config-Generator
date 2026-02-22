@@ -1,6 +1,41 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-vscode-bg: #1A1A1A;
+  --color-vscode-header: #242424;
+  --color-vscode-active: #0D4A9E;
+  --color-vscode-text: #FFFFFF;
+  --color-vscode-accent: #0090F1;
+  
+  --color-nord-text-primary: #FFFFFF;
+  --color-nord-text-secondary: #E6E6E6;
+  --color-nord-text-error: #FF3B3B;
+  
+  --color-nord-button-primary: #0065C2;
+  --color-nord-button-primary-hover: #0078D4;
+  --color-nord-button-secondary: #595959;
+  --color-nord-button-secondary-hover: #6A6A6A;
+  
+  --color-nord-bg-card: #2A2A2A;
+  --color-nord-bg-hover: #323232;
+  --color-nord-bg-active: #3D3D3D;
+  --color-nord-bg-overlay: rgba(0, 0, 0, 0.75);
+  --color-nord-bg-overlay-light: rgba(0, 0, 0, 0.5);
+  
+  --color-nord-load-low-bg: #0B3B1F;
+  --color-nord-load-low-text: #4AFF91;
+  --color-nord-load-medium-bg: #2D4016;
+  --color-nord-load-medium-text: #B8FF84;
+  --color-nord-load-warning-bg: #3D3415;
+  --color-nord-load-warning-text: #FFE484;
+  --color-nord-load-high-bg: #3D1515;
+  --color-nord-load-high-text: #FF9494;
+  --color-nord-load-critical-bg: #4A1515;
+  --color-nord-load-critical-text: #FFBEBE;
+  
+  --color-nord-success-bg: #0B3B1F;
+  --color-nord-success-text: #6EFFAB;
+}
 
 @layer base {
   :root { font-size: 115%; }

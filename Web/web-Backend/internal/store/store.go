@@ -2,8 +2,8 @@ package store
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"os"
@@ -15,6 +15,7 @@ import (
 	"nordgen/internal/types"
 
 	"github.com/andybalholm/brotli"
+	"github.com/bytedance/sonic"
 )
 
 const (
@@ -111,21 +112,24 @@ func (s *Store) loadAssets(dir string) error {
 }
 
 func normalize(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
+	b := make([]byte, 0, len(s))
 	lastUnderscore := false
-	for _, c := range strings.ToLower(s) {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 32
+		}
 		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
-			b.WriteRune(c)
+			b = append(b, c)
 			lastUnderscore = false
 		} else {
 			if !lastUnderscore {
-				b.WriteByte('_')
+				b = append(b, '_')
 				lastUnderscore = true
 			}
 		}
 	}
-	return b.String()
+	return string(b)
 }
 
 func validateVersion(v string) bool {
@@ -149,6 +153,9 @@ func validateVersion(v string) bool {
 			return false
 		}
 		maj = maj*10 + int(v[i]-'0')
+		if maj > 999 {
+			return false
+		}
 	}
 
 	if maj > 2 {
@@ -172,6 +179,9 @@ func validateVersion(v string) bool {
 			return false
 		}
 		min = min*10 + int(v[i]-'0')
+		if min > 999 {
+			return false
+		}
 	}
 
 	return min >= 1
@@ -188,8 +198,13 @@ func (s *Store) updateServers() {
 		return
 	}
 
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+
 	var raw []types.RawServer
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	if err := sonic.Unmarshal(bodyBytes, &raw); err != nil {
 		return
 	}
 
@@ -203,6 +218,15 @@ func (s *Store) updateServers() {
 	payload := types.ServerPayload{
 		Headers: []string{"name", "load", "station"},
 		List:    make(map[string]map[string][][]interface{}),
+	}
+
+	strPool := make(map[string]string)
+	intern := func(in string) string {
+		if val, ok := strPool[in]; ok {
+			return val
+		}
+		strPool[in] = in
+		return in
 	}
 
 	kID := 1
@@ -252,8 +276,9 @@ func (s *Store) updateServers() {
 			state.Keys[id] = pk
 		}
 
-		country := normalize(loc.Country.Name)
-		city := normalize(loc.Country.City.Name)
+		country := intern(normalize(loc.Country.Name))
+		city := intern(normalize(loc.Country.City.Name))
+		code := intern(loc.Country.Code)
 
 		processed := types.ProcessedServer{
 			Name:     name,
@@ -261,7 +286,7 @@ func (s *Store) updateServers() {
 			Hostname: srv.Hostname,
 			Country:  country,
 			City:     city,
-			Code:     loc.Country.Code,
+			Code:     code,
 			KeyID:    id,
 		}
 
@@ -276,7 +301,7 @@ func (s *Store) updateServers() {
 		state.RegionIndex[country][city] = append(state.RegionIndex[country][city], processed)
 	}
 
-	jsonData, _ := json.Marshal(payload)
+	jsonData, _ := sonic.Marshal(payload)
 	state.ServerJson = jsonData
 	state.ServerEtag = fmt.Sprintf(`W/"%s"`, strings.Trim(fmt.Sprintf("%x", time.Now().UnixNano()), "-"))
 

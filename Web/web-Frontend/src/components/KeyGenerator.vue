@@ -51,7 +51,7 @@ const submit = async () => {
     <footer class="sticky bottom-0 bg-vscode-header border-t border-vscode-active p-4 flex-none">
       <div class="container mx-auto max-w-xl flex items-center justify-end gap-2 sm:gap-3">
         <button type="button" @click="emit('cancel')" class="h-9 px-3 sm:px-4 rounded border border-nord-button-secondary text-vscode-text text-sm font-medium hover:bg-nord-bg-hover transition-colors whitespace-nowrap">Cancel</button>
-        <button type="button" @click="submit" :disabled="loading || !!error || !token" class="h-9 px-3 sm:px-4 rounded bg-nord-button-primary text-white text-sm font-medium hover:bg-nord-button-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[100px] flex justify-center items-center whitespace-nowrap">
+        <button type="button" @click="submit" :disabled="loading || !!error || !token" class="h-9 px-3 sm:px-4 rounded bg-nord-button-primary text-white text-sm font-medium hover:bg-nord-button-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-25 flex justify-center items-center whitespace-nowrap">
           <div v-if="loading" class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
           <span v-else>Generate</span>
         </button>
