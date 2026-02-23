@@ -1,11 +1,12 @@
 FROM golang:1.25.6-alpine3.23 AS builder
 WORKDIR /build
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache ca-certificates
 RUN adduser --disabled-password --gecos "" --home "/nonexistent" --shell "/sbin/nologin" --no-create-home --uid 10001 appuser
 COPY Web/web-Backend/go.mod Web/web-Backend/go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY Web/web-Backend .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -trimpath -o server main.go
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOAMD64=v3 go build -buildvcs=false -ldflags="-s -w" -trimpath -o server main.go
 
 FROM scratch
 WORKDIR /app
