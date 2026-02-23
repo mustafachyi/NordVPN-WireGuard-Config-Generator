@@ -150,8 +150,8 @@ func (s *Store) loadAssets(dir string) error {
 }
 
 func buildEtag(size int, ts int64) string {
-	buf := make([]byte, 0, 32)
-	buf = append(buf, 'W', '/', '"')
+	buf := make([]byte, 0, 28)
+	buf = append(buf, '"')
 	buf = strconv.AppendInt(buf, int64(size), 16)
 	buf = append(buf, '-')
 	buf = strconv.AppendInt(buf, ts, 16)
@@ -160,8 +160,8 @@ func buildEtag(size int, ts int64) string {
 }
 
 func buildServerEtag(ts int64) string {
-	buf := make([]byte, 0, 24)
-	buf = append(buf, 'W', '/', '"')
+	buf := make([]byte, 0, 22)
+	buf = append(buf, '"')
 	buf = strconv.AppendInt(buf, ts, 16)
 	buf = append(buf, '"')
 	return string(buf)
