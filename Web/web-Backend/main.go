@@ -379,7 +379,8 @@ func main() {
 			return c.Status(503).JSON(fiber.Map{"error": "Initializing"})
 		}
 		c.Set("ETag", etag)
-		c.Set("Cache-Control", "public, max-age=300")
+		c.Set("Cache-Control", "public, no-transform, max-age=300")
+		c.Set("Vary", "Accept-Encoding")
 		if c.Get("if-none-match") == etag {
 			return c.SendStatus(304)
 		}
@@ -547,14 +548,14 @@ func main() {
 			}
 			asset = store.Core.GetAsset("/")
 			if asset != nil {
-				return serveAsset(c, asset, "public, max-age=300")
+				return serveAsset(c, asset, "public, no-transform, max-age=300")
 			}
 			return c.SendStatus(404)
 		}
 
-		cc := "public, max-age=300"
+		cc := "public, no-transform, max-age=300"
 		if strings.HasPrefix(path, "/assets") {
-			cc = "public, max-age=31536000, immutable"
+			cc = "public, no-transform, max-age=31536000, immutable"
 		}
 
 		return serveAsset(c, asset, cc)
