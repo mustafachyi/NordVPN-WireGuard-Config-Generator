@@ -16,6 +16,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/limiter"
+	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/klauspost/compress/zip"
 	"github.com/skip2/go-qrcode"
 )
@@ -23,6 +24,7 @@ import (
 var httpClient = &http.Client{
 	Timeout: 10 * time.Second,
 	Transport: &http.Transport{
+		ForceAttemptHTTP2:   true,
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 100,
 		IdleConnTimeout:     90 * time.Second,
@@ -163,6 +165,20 @@ func validateBatch(b types.BatchConfigReq) (types.ValidatedConfig, string) {
 	return cfg, ""
 }
 
+func extractRefererHost(referer string) string {
+	r := referer
+	if idx := strings.Index(r, "://"); idx != -1 {
+		r = r[idx+3:]
+	}
+	if idx := strings.IndexByte(r, '/'); idx != -1 {
+		r = r[:idx]
+	}
+	if idx := strings.IndexByte(r, ':'); idx != -1 {
+		r = r[:idx]
+	}
+	return r
+}
+
 func originGuard(c fiber.Ctx) error {
 	host := c.Hostname()
 	origin := c.Get("Origin")
@@ -181,7 +197,7 @@ func originGuard(c fiber.Ctx) error {
 	}
 
 	if referer != "" {
-		if !strings.Contains(referer, host) {
+		if extractRefererHost(referer) != host {
 			return c.Status(403).JSON(fiber.Map{"error": "Forbidden Referer"})
 		}
 	}
@@ -190,18 +206,28 @@ func originGuard(c fiber.Ctx) error {
 }
 
 func serveAsset(c fiber.Ctx, asset *types.Asset, cacheTier string) error {
+	c.Set("ETag", asset.Etag)
+	c.Set("Cache-Control", cacheTier)
+	c.Set("Vary", "Accept-Encoding")
+
 	if c.Get("if-none-match") == asset.Etag {
 		return c.SendStatus(304)
 	}
 
-	c.Set("ETag", asset.Etag)
 	c.Set("Content-Type", asset.Mime)
-	c.Set("Cache-Control", cacheTier)
 
-	if asset.Brotli != nil && strings.Contains(c.Get("accept-encoding"), "br") {
+	enc := c.Get("accept-encoding")
+
+	if asset.Brotli != nil && strings.Contains(enc, "br") {
 		c.Set("Content-Encoding", "br")
 		return c.Send(asset.Brotli)
 	}
+
+	if asset.Gzip != nil && strings.Contains(enc, "gzip") {
+		c.Set("Content-Encoding", "gzip")
+		return c.Send(asset.Gzip)
+	}
+
 	return c.Send(asset.Content)
 }
 
@@ -314,12 +340,15 @@ func main() {
 
 	app := fiber.New(fiber.Config{
 		BodyLimit:    4 * 1024 * 1024,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
 		ProxyHeader:  "X-Forwarded-For",
 		JSONEncoder:  sonic.Marshal,
 		JSONDecoder:  sonic.Unmarshal,
-		ErrorHandler: nil,
 	})
 
+	app.Use(recover.New())
 	app.Use(cors.New())
 
 	api := app.Group("/api")
@@ -349,11 +378,11 @@ func main() {
 		if data == nil {
 			return c.Status(503).JSON(fiber.Map{"error": "Initializing"})
 		}
+		c.Set("ETag", etag)
+		c.Set("Cache-Control", "public, max-age=300")
 		if c.Get("if-none-match") == etag {
 			return c.SendStatus(304)
 		}
-		c.Set("ETag", etag)
-		c.Set("Cache-Control", "public, max-age=300")
 		c.Set("Content-Type", "application/json; charset=utf-8")
 		return c.Send(data)
 	})
@@ -412,12 +441,17 @@ func main() {
 			return c.Status(400).JSON(fiber.Map{"error": errMsg})
 		}
 
-		srv, ok := store.Core.GetServer(cfg.Name)
+		state := store.Core.LoadState()
+		if state == nil {
+			return c.Status(503).JSON(fiber.Map{"error": "Initializing"})
+		}
+
+		srv, ok := state.Servers[cfg.Name]
 		if !ok {
 			return c.Status(404).JSON(fiber.Map{"error": "Server not found"})
 		}
 
-		pk, ok := store.Core.GetKey(srv.KeyID)
+		pk, ok := state.Keys[srv.KeyID]
 		if !ok {
 			return c.Status(500).JSON(fiber.Map{"error": "Key missing"})
 		}
@@ -457,7 +491,12 @@ func main() {
 			return c.Status(400).JSON(fiber.Map{"error": errMsg})
 		}
 
-		servers := store.Core.GetBatch(body.Country, body.City)
+		state := store.Core.LoadState()
+		if state == nil {
+			return c.Status(503).JSON(fiber.Map{"error": "Initializing"})
+		}
+
+		servers := store.Core.GetBatchFromState(state, body.Country, body.City)
 		if len(servers) == 0 {
 			return c.Status(404).JSON(fiber.Map{"error": "No servers found"})
 		}
@@ -475,7 +514,7 @@ func main() {
 			usedPaths := make(map[string]int, len(servers))
 
 			for _, srv := range servers {
-				pk, ok := store.Core.GetKey(srv.KeyID)
+				pk, ok := state.Keys[srv.KeyID]
 				if !ok {
 					continue
 				}

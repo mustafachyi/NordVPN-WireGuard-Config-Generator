@@ -85,6 +85,7 @@ type ServerPayload struct {
 type Asset struct {
 	Content []byte
 	Brotli  []byte
+	Gzip    []byte
 	Mime    string
 	Etag    string
 }

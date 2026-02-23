@@ -17,6 +17,7 @@ import (
 
 	"github.com/andybalholm/brotli"
 	"github.com/bytedance/sonic"
+	kgzip "github.com/klauspost/compress/gzip"
 )
 
 const (
@@ -29,6 +30,7 @@ var (
 	refreshClient = &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
+			ForceAttemptHTTP2:   true,
 			MaxIdleConns:        10,
 			MaxIdleConnsPerHost: 10,
 			IdleConnTimeout:     90 * time.Second,
@@ -42,6 +44,8 @@ type State struct {
 	Servers     map[string]types.ProcessedServer
 	Keys        map[int]string
 	RegionIndex map[string]map[string][]types.ProcessedServer
+	CountryFlat map[string][]types.ProcessedServer
+	AllServers  []types.ProcessedServer
 	ServerJson  []byte
 	ServerEtag  string
 	IndexAsset  *types.Asset
@@ -70,6 +74,10 @@ func (s *Store) Init() {
 	}()
 }
 
+func (s *Store) LoadState() *State {
+	return s.state.Load()
+}
+
 func (s *Store) loadAssets(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -82,7 +90,9 @@ func (s *Store) loadAssets(dir string) error {
 			s.loadAssets(path)
 			continue
 		}
-		if strings.HasSuffix(entry.Name(), ".br") {
+
+		name := entry.Name()
+		if strings.HasSuffix(name, ".br") || strings.HasSuffix(name, ".gz") {
 			continue
 		}
 
@@ -100,14 +110,25 @@ func (s *Store) loadAssets(dir string) error {
 		}
 
 		var brContent []byte
-		if _, err := os.Stat(path + ".br"); err == nil {
-			brContent, _ = os.ReadFile(path + ".br")
+		if data, err := os.ReadFile(path + ".br"); err == nil {
+			brContent = data
 		} else {
-			var buf bytes.Buffer
-			w := brotli.NewWriterLevel(&buf, brotli.BestCompression)
-			w.Write(content)
-			w.Close()
-			brContent = buf.Bytes()
+			var brBuf bytes.Buffer
+			brw := brotli.NewWriterLevel(&brBuf, brotli.BestCompression)
+			brw.Write(content)
+			brw.Close()
+			brContent = brBuf.Bytes()
+		}
+
+		var gzContent []byte
+		if data, err := os.ReadFile(path + ".gz"); err == nil {
+			gzContent = data
+		} else {
+			var gzBuf bytes.Buffer
+			gzw, _ := kgzip.NewWriterLevel(&gzBuf, kgzip.BestCompression)
+			gzw.Write(content)
+			gzw.Close()
+			gzContent = gzBuf.Bytes()
 		}
 
 		mimeType := mime.TypeByExtension(filepath.Ext(path))
@@ -120,6 +141,7 @@ func (s *Store) loadAssets(dir string) error {
 		s.assets[webPath] = &types.Asset{
 			Content: content,
 			Brotli:  brContent,
+			Gzip:    gzContent,
 			Mime:    mimeType,
 			Etag:    etag,
 		}
@@ -291,6 +313,7 @@ func (s *Store) updateServers() {
 		Servers:     make(map[string]types.ProcessedServer, len(raw)),
 		Keys:        make(map[int]string, len(raw)),
 		RegionIndex: make(map[string]map[string][]types.ProcessedServer),
+		CountryFlat: make(map[string][]types.ProcessedServer),
 	}
 
 	newKeys := make(map[string]int, len(raw))
@@ -390,7 +413,29 @@ func (s *Store) updateServers() {
 		state.RegionIndex[country][city] = append(state.RegionIndex[country][city], processed)
 	}
 
-	jsonData, _ := sonic.Marshal(payload)
+	allServers := make([]types.ProcessedServer, 0, len(state.Servers))
+	for _, srv := range state.Servers {
+		allServers = append(allServers, srv)
+	}
+	state.AllServers = allServers
+
+	for country, cities := range state.RegionIndex {
+		var count int
+		for _, srvs := range cities {
+			count += len(srvs)
+		}
+		flat := make([]types.ProcessedServer, 0, count)
+		for _, srvs := range cities {
+			flat = append(flat, srvs...)
+		}
+		state.CountryFlat[country] = flat
+	}
+
+	jsonData, err := sonic.Marshal(payload)
+	if err != nil {
+		return
+	}
+
 	state.ServerJson = jsonData
 	state.ServerEtag = buildServerEtag(time.Now().UnixNano())
 
@@ -414,14 +459,20 @@ func (s *Store) rebuildIndex(state *State) {
 
 	content := bytes.Replace(s.indexRaw, bodyClose, injection, 1)
 
-	var buf bytes.Buffer
-	w := brotli.NewWriterLevel(&buf, brotli.BestCompression)
-	w.Write(content)
-	w.Close()
+	var brBuf bytes.Buffer
+	brw := brotli.NewWriterLevel(&brBuf, brotli.BestCompression)
+	brw.Write(content)
+	brw.Close()
+
+	var gzBuf bytes.Buffer
+	gzw, _ := kgzip.NewWriterLevel(&gzBuf, kgzip.BestCompression)
+	gzw.Write(content)
+	gzw.Close()
 
 	state.IndexAsset = &types.Asset{
 		Content: content,
-		Brotli:  buf.Bytes(),
+		Brotli:  brBuf.Bytes(),
+		Gzip:    gzBuf.Bytes(),
 		Mime:    "text/html; charset=utf-8",
 		Etag:    state.ServerEtag,
 	}
@@ -469,16 +520,19 @@ func (s *Store) GetBatch(country, city string) []types.ProcessedServer {
 	if state == nil {
 		return nil
 	}
+	return s.GetBatchFromState(state, country, city)
+}
 
+func (s *Store) GetBatchFromState(state *State, country, city string) []types.ProcessedServer {
 	cKey := normalize(country)
 	tKey := normalize(city)
 
 	if cKey == "" {
-		results := make([]types.ProcessedServer, 0, len(state.Servers))
-		for _, srv := range state.Servers {
-			results = append(results, srv)
-		}
-		return results
+		return state.AllServers
+	}
+
+	if tKey == "" {
+		return state.CountryFlat[cKey]
 	}
 
 	cities, ok := state.RegionIndex[cKey]
@@ -486,21 +540,5 @@ func (s *Store) GetBatch(country, city string) []types.ProcessedServer {
 		return nil
 	}
 
-	if tKey == "" {
-		var count int
-		for _, srvs := range cities {
-			count += len(srvs)
-		}
-		results := make([]types.ProcessedServer, 0, count)
-		for _, srvs := range cities {
-			results = append(results, srvs...)
-		}
-		return results
-	}
-
-	if srvs, ok := cities[tKey]; ok {
-		return srvs
-	}
-
-	return nil
+	return cities[tKey]
 }
