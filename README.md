@@ -86,7 +86,7 @@ nordgen --help
 
 A browser-based version of the generator is available for immediate use without local installation.
 
-*   **Live Application:** [https://nord-configs.selfhoster.nl/](https://nord-configs.selfhoster.nl/)
+*   **Live Application:** [https://nordgen.selfhoster.win/](https://nordgen.selfhoster.win/)
 
 ## Support
 
