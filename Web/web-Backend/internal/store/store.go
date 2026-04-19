@@ -3,7 +3,6 @@ package store
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"mime"
 	"net/http"
 	"os"
@@ -55,6 +54,7 @@ type Store struct {
 	state    atomic.Pointer[State]
 	assets   map[string]*types.Asset
 	indexRaw []byte
+	assetSeq int
 }
 
 var Core = &Store{
@@ -87,7 +87,9 @@ func (s *Store) loadAssets(dir string) error {
 	for _, entry := range entries {
 		path := filepath.Join(dir, entry.Name())
 		if entry.IsDir() {
-			s.loadAssets(path)
+			if err := s.loadAssets(path); err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -136,7 +138,8 @@ func (s *Store) loadAssets(dir string) error {
 			mimeType = "application/octet-stream"
 		}
 
-		etag := buildEtag(len(content), time.Now().UnixMilli())
+		s.assetSeq++
+		etag := buildEtag(len(content), int64(s.assetSeq))
 
 		s.assets[webPath] = &types.Asset{
 			Content: content,
@@ -149,12 +152,12 @@ func (s *Store) loadAssets(dir string) error {
 	return nil
 }
 
-func buildEtag(size int, ts int64) string {
+func buildEtag(size int, seq int64) string {
 	buf := make([]byte, 0, 28)
 	buf = append(buf, '"')
 	buf = strconv.AppendInt(buf, int64(size), 16)
 	buf = append(buf, '-')
-	buf = strconv.AppendInt(buf, ts, 16)
+	buf = strconv.AppendInt(buf, seq, 16)
 	buf = append(buf, '"')
 	return string(buf)
 }
@@ -299,13 +302,8 @@ func (s *Store) updateServers() {
 		return
 	}
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return
-	}
-
 	var raw []types.RawServer
-	if err := sonic.Unmarshal(bodyBytes, &raw); err != nil {
+	if err := sonic.ConfigDefault.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return
 	}
 

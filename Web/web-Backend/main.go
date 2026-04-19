@@ -179,6 +179,10 @@ func extractRefererHost(referer string) string {
 	return r
 }
 
+func hostPortEquals(origin, host string) bool {
+	return len(origin) > len(host) && origin[:len(host)] == host && origin[len(host)] == ':'
+}
+
 func originGuard(c fiber.Ctx) error {
 	host := c.Hostname()
 	origin := c.Get("Origin")
@@ -191,7 +195,7 @@ func originGuard(c fiber.Ctx) error {
 		} else if strings.HasPrefix(cleanOrg, "http://") {
 			cleanOrg = cleanOrg[7:]
 		}
-		if cleanOrg != host && !strings.HasPrefix(cleanOrg, host+":") {
+		if cleanOrg != host && !hostPortEquals(cleanOrg, host) {
 			return c.Status(403).JSON(fiber.Map{"error": "Forbidden Origin"})
 		}
 	}
@@ -508,7 +512,7 @@ func main() {
 		c.Set("Content-Disposition", buildDisposition(baseName))
 		c.Set("Cache-Control", "no-store")
 
-		c.RequestCtx().SetBodyStreamWriter(func(w *bufio.Writer) {
+		return c.SendStreamWriter(func(w *bufio.Writer) {
 			zw := zip.NewWriter(w)
 			defer zw.Close()
 
@@ -534,8 +538,6 @@ func main() {
 				wg.WriteConfig(f, srv, pk, cfg)
 			}
 		})
-
-		return nil
 	})
 
 	app.Use(func(c fiber.Ctx) error {
