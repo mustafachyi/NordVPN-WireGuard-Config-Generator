@@ -1,39 +1,27 @@
+from dataclasses import dataclass, field
+
+@dataclass(slots=True, frozen=True)
 class Server:
-    __slots__ = (
-        'name', 'hostname', 'station', 'load', 'country', 
-        'country_code', 'city', 'latitude', 'longitude', 
-        'public_key', 'distance'
-    )
+    name: str
+    hostname: str
+    station: str
+    load: int
+    country: str
+    country_code: str
+    city: str
+    latitude: float
+    longitude: float
+    public_key: str
+    distance: float
 
-    def __init__(
-        self, name: str, hostname: str, station: str, load: int,
-        country: str, country_code: str, city: str,
-        latitude: float, longitude: float, public_key: str, distance: float
-    ):
-        self.name = name
-        self.hostname = hostname
-        self.station = station
-        self.load = load
-        self.country = country
-        self.country_code = country_code
-        self.city = city
-        self.latitude = latitude
-        self.longitude = longitude
-        self.public_key = public_key
-        self.distance = distance
-
+@dataclass(slots=True, frozen=True)
 class UserPreferences:
-    __slots__ = ('dns', 'use_ip', 'keepalive')
+    dns: str = "103.86.96.100"
+    use_ip: bool = False
+    keepalive: int = 25
 
-    def __init__(self, dns: str = "103.86.96.100", use_ip: bool = False, keepalive: int = 25):
-        self.dns = dns
-        self.use_ip = use_ip
-        self.keepalive = keepalive
-
-class Stats:
-    __slots__ = ('total', 'best', 'rejected')
-
-    def __init__(self):
-        self.total = 0
-        self.best = 0
-        self.rejected = 0
+@dataclass(slots=True)
+class GenerationStats:
+    total: int = 0
+    best: int = 0
+    rejected: int = 0

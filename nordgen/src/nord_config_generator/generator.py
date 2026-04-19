@@ -1,212 +1,228 @@
 import asyncio
 import os
-import aiofiles
-from typing import List, Dict, Optional, Set
-from math import radians, sin, cos, asin, sqrt
-from concurrent.futures import ThreadPoolExecutor
+import re
+from dataclasses import dataclass
 from datetime import datetime
+from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
-from rich.progress import TaskID
+from typing import Optional
+
+from rich.progress import Progress, TaskID
 
 from .client import NordClient
+from .models import GenerationStats, Server, UserPreferences
 from .ui import ConsoleManager
-from .models import Server, UserPreferences, Stats
+
+_TRAILING_NUMBER_PATTERN = re.compile(r"(\d+)\D*$")
+_PATH_SANITIZER = str.maketrans("", "", '<>:"/\\|?*\0')
+_EARTH_RADIUS_KM = 6371.0
+_FILENAME_MAX_LENGTH = 15
+_MINIMUM_SUPPORTED_MAJOR = 2
+_MINIMUM_SUPPORTED_MINOR = 1
+
+
+@dataclass(slots=True, frozen=True)
+class _ConfigWriteJob:
+    absolute_path: Path
+    content: str
+
 
 class Generator:
-    MIN_VER_MAJOR = 2
-    MIN_VER_MINOR = 1
-
-    def __init__(self, client: NordClient, ui: ConsoleManager):
+    def __init__(self, client: NordClient, ui: ConsoleManager) -> None:
         self.client = client
         self.ui = ui
-        self.stats = Stats()
-        self.dir_cache: Set[str] = set()
-        self.out_dir = Path(f'nordvpn_configs_{datetime.now().strftime("%Y%m%d_%H%M%S")}')
-        self.path_sanitizer = str.maketrans('', '', '<>:"/\\|?*\0')
+        self.stats = GenerationStats()
+        self.output_directory: Optional[Path] = None
 
-    async def process(self, key: str, prefs: UserPreferences):
-        self.ui.spin("Fetching data...")
-        
-        geo_task = asyncio.create_task(self.client.get_geo())
-        srv_task = asyncio.create_task(self.client.get_servers())
-        
-        lat, lon = await geo_task
-        raw_servers = await srv_task
-        
+    async def process(self, private_key: str, preferences: UserPreferences) -> Optional[str]:
+        self.output_directory = Path(
+            f"nordvpn_configs_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+
+        with self.ui.status("Fetching data..."):
+            (latitude, longitude), raw_servers = await asyncio.gather(
+                self.client.get_geo(),
+                self.client.get_servers(),
+            )
+
         if not raw_servers:
             self.ui.fail("Failed to fetch server data")
-            return
-
+            return None
         self.ui.success("Data fetched")
-        self.ui.spin("Processing dataset...")
 
-        loop = asyncio.get_running_loop()
-        with ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
-            processed = await loop.run_in_executor(pool, self._parse_batch, raw_servers, lat, lon)
+        with self.ui.status("Processing dataset..."):
+            parsed_servers = self._parse_server_batch(raw_servers, latitude, longitude)
+            unique_servers = list({server.name: server for server in parsed_servers}.values())
+            unique_servers.sort(key=lambda server: (server.load, server.distance))
 
-        unique = {s.name: s for s in processed}
-        final_list = list(unique.values())
-        final_list.sort(key=lambda x: (x.load, x.distance))
-        
-        self.stats.rejected = len(raw_servers) - len(final_list)
-        self.stats.total = len(final_list)
-        
-        best_map = {}
-        for s in final_list:
-            k = (s.country, s.city)
-            if k not in best_map or s.load < best_map[k].load:
-                best_map[k] = s
-        
-        self.stats.best = len(best_map)
-        best_list = list(best_map.values())
+            self.stats.rejected = len(raw_servers) - len(unique_servers)
+            self.stats.total = len(unique_servers)
 
-        self.out_dir.mkdir(exist_ok=True)
-        self.dir_cache.add(str(self.out_dir))
+            optimized_servers: dict[tuple[str, str], Server] = {}
+            for server in unique_servers:
+                optimized_servers.setdefault((server.country, server.city), server)
+            self.stats.best = len(optimized_servers)
 
-        self.ui.start_progress()
-        t1 = self.ui.add_task("Standard Configs", self.stats.total)
-        t2 = self.ui.add_task("Optimized Configs", self.stats.best)
+            standard_jobs = self._build_jobs(unique_servers, "configs", private_key, preferences)
+            optimized_jobs = self._build_jobs(
+                list(optimized_servers.values()), "best_configs", private_key, preferences
+            )
 
-        await asyncio.gather(
-            self._write_batch(final_list, "configs", t1, key, prefs),
-            self._write_batch(best_list, "best_configs", t2, key, prefs)
-        )
-        self.ui.stop_progress()
+        await asyncio.to_thread(self._materialize_directories, standard_jobs + optimized_jobs)
 
-        return str(self.out_dir)
+        with self.ui.progress() as progress:
+            standard_task = progress.add_task("Standard Configs", total=len(standard_jobs))
+            optimized_task = progress.add_task("Optimized Configs", total=len(optimized_jobs))
+            await asyncio.gather(
+                asyncio.to_thread(self._write_jobs, standard_jobs, progress, standard_task),
+                asyncio.to_thread(self._write_jobs, optimized_jobs, progress, optimized_task),
+            )
 
-    def _parse_batch(self, raw: List[Dict], lat: float, lon: float) -> List[Server]:
-        results = []
-        for d in raw:
-            s = self._parse_one(d, lat, lon)
-            if s:
-                results.append(s)
-        return results
+        return str(self.output_directory)
 
-    def _parse_one(self, data: Dict, lat: float, lon: float) -> Optional[Server]:
+    def _parse_server_batch(
+        self, raw_servers: list[dict], latitude: float, longitude: float
+    ) -> list[Server]:
+        parsed: list[Server] = []
+        for raw_server in raw_servers:
+            server = self._parse_server_record(raw_server, latitude, longitude)
+            if server is not None:
+                parsed.append(server)
+        return parsed
+
+    def _parse_server_record(
+        self, data: dict, observer_latitude: float, observer_longitude: float
+    ) -> Optional[Server]:
         try:
-            locs = data.get('locations')
-            if not locs: return None
-            
-            ver_str = "0.0.0"
-            for s in data.get('specifications', []):
-                if s.get('identifier') == 'version':
-                    vals = s.get('values')
-                    if vals: ver_str = vals[0].get('value', "0.0.0")
-                    break
-            
-            if not self._check_version(ver_str):
+            locations = data.get("locations")
+            if not locations:
                 return None
 
-            pk = ""
-            for t in data.get('technologies', []):
-                if t.get('identifier') == 'wireguard_udp':
-                    for m in t.get('metadata', []):
-                        if m.get('name') == 'public_key':
-                            pk = m.get('value')
-                            break
-            if not pk: return None
+            version_string = "0.0.0"
+            for specification in data.get("specifications", []):
+                if specification.get("identifier") == "version":
+                    values = specification.get("values")
+                    if values:
+                        version_string = values[0].get("value", "0.0.0")
+                    break
+            if not self._is_version_supported(version_string):
+                return None
 
-            loc = locs[0]
-            d = self._haversine(lat, lon, loc['latitude'], loc['longitude'])
-            
+            public_key = ""
+            for technology in data.get("technologies", []):
+                if technology.get("identifier") == "wireguard_udp":
+                    for metadata_entry in technology.get("metadata", []):
+                        if metadata_entry.get("name") == "public_key":
+                            public_key = metadata_entry.get("value", "")
+                            break
+                    break
+            if not public_key:
+                return None
+
+            primary_location = locations[0]
+            distance = self._haversine_kilometers(
+                observer_latitude,
+                observer_longitude,
+                primary_location["latitude"],
+                primary_location["longitude"],
+            )
+
             return Server(
-                name=data['name'],
-                hostname=data['hostname'],
-                station=data['station'],
-                load=int(data.get('load', 0)),
-                country=loc['country']['name'],
-                country_code=loc['country']['code'].lower(),
-                city=loc['country']['city']['name'],
-                latitude=loc['latitude'],
-                longitude=loc['longitude'],
-                public_key=pk,
-                distance=d
+                name=data["name"],
+                hostname=data["hostname"],
+                station=data["station"],
+                load=int(data.get("load", 0)),
+                country=primary_location["country"]["name"],
+                country_code=primary_location["country"]["code"].lower(),
+                city=primary_location["country"]["city"]["name"],
+                latitude=primary_location["latitude"],
+                longitude=primary_location["longitude"],
+                public_key=public_key,
+                distance=distance,
             )
         except (KeyError, IndexError, ValueError, TypeError):
             return None
 
-    def _check_version(self, v: str) -> bool:
-        if len(v) < 3: return False
+    @staticmethod
+    def _is_version_supported(version_string: str) -> bool:
         try:
-            parts = v.split('.')
-            if len(parts) < 2: return False
-            maj = int(parts[0])
-            if maj > 2: return True
-            return maj == 2 and int(parts[1]) >= 1
-        except ValueError:
+            major_part, minor_part, *_ = version_string.split(".")
+            major = int(major_part)
+            if major > _MINIMUM_SUPPORTED_MAJOR:
+                return True
+            return major == _MINIMUM_SUPPORTED_MAJOR and int(minor_part) >= _MINIMUM_SUPPORTED_MINOR
+        except (ValueError, IndexError):
             return False
 
-    def _haversine(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        R = 6371
-        dlat = radians(lat2 - lat1)
-        dlon = radians(lon2 - lon1)
-        a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
-        c = 2 * asin(sqrt(a))
-        return R * c
+    @staticmethod
+    def _haversine_kilometers(
+        latitude_a: float, longitude_a: float, latitude_b: float, longitude_b: float
+    ) -> float:
+        delta_latitude = radians(latitude_b - latitude_a)
+        delta_longitude = radians(longitude_b - longitude_a)
+        intermediate = (
+            sin(delta_latitude / 2) ** 2
+            + cos(radians(latitude_a)) * cos(radians(latitude_b)) * sin(delta_longitude / 2) ** 2
+        )
+        return _EARTH_RADIUS_KM * 2 * asin(sqrt(intermediate))
 
-    async def _write_batch(self, servers: List[Server], sub: str, task_id: TaskID, key: str, prefs: UserPreferences):
-        sem = asyncio.Semaphore(200)
-        path_counts: Dict[str, int] = {}
-        
-        async def _write(s: Server):
-            async with sem:
-                country = self._sanitize(s.country)
-                city = self._sanitize(s.city)
-                base = self._basename(s)
-                rel = f"{sub}/{country}/{city}/{base}"
-                
-                count = path_counts.get(rel, 0)
-                path_counts[rel] = count + 1
-                
-                fname = base
-                if count > 0:
-                    raw_base = base[:-5]
-                    fname = f"{raw_base}_{count}.conf"
+    def _build_jobs(
+        self,
+        servers: list[Server],
+        subdirectory: str,
+        private_key: str,
+        preferences: UserPreferences,
+    ) -> list[_ConfigWriteJob]:
+        assert self.output_directory is not None
+        jobs: list[_ConfigWriteJob] = []
+        filename_counts: dict[Path, int] = {}
 
-                full_dir = self.out_dir / sub / country / city
-                self._ensure_dir(full_dir)
-                
-                ep = s.station if prefs.use_ip else s.hostname
-                cfg = (
-                    f"[Interface]\nPrivateKey = {key}\nAddress = 10.5.0.2/16\nDNS = {prefs.dns}\n\n"
-                    f"[Peer]\nPublicKey = {s.public_key}\nAllowedIPs = 0.0.0.0/0, ::/0\n"
-                    f"Endpoint = {ep}:51820\nPersistentKeepalive = {prefs.keepalive}"
-                )
-                
-                async with aiofiles.open(full_dir / fname, 'w') as f:
-                    await f.write(cfg)
-                self.ui.update_progress(task_id)
+        for server in servers:
+            country_segment = self._sanitize_path_segment(server.country)
+            city_segment = self._sanitize_path_segment(server.city)
+            filename_root = self._build_config_filename_root(server)
+            directory = self.output_directory / subdirectory / country_segment / city_segment
 
-        tasks = [_write(s) for s in servers]
-        await asyncio.gather(*tasks)
+            candidate_path = directory / f"{filename_root}.conf"
+            count = filename_counts.get(candidate_path, 0)
+            filename_counts[candidate_path] = count + 1
+            final_path = (
+                candidate_path
+                if count == 0
+                else directory / f"{filename_root}_{count}.conf"
+            )
 
-    def _ensure_dir(self, path: Path):
-        s_path = str(path)
-        if s_path in self.dir_cache: return
-        try:
-            path.mkdir(parents=True, exist_ok=True)
-            self.dir_cache.add(s_path)
-        except OSError:
-            pass
+            endpoint = server.station if preferences.use_ip else server.hostname
+            content = (
+                f"[Interface]\nPrivateKey = {private_key}\nAddress = 10.5.0.2/16\n"
+                f"DNS = {preferences.dns}\n\n"
+                f"[Peer]\nPublicKey = {server.public_key}\nAllowedIPs = 0.0.0.0/0, ::/0\n"
+                f"Endpoint = {endpoint}:51820\nPersistentKeepalive = {preferences.keepalive}"
+            )
+            jobs.append(_ConfigWriteJob(absolute_path=final_path, content=content))
+        return jobs
 
-    def _sanitize(self, s: str) -> str:
-        return s.lower().replace(' ', '_').translate(self.path_sanitizer)
+    @staticmethod
+    def _materialize_directories(jobs: list[_ConfigWriteJob]) -> None:
+        unique_directories = {job.absolute_path.parent for job in jobs}
+        for directory in unique_directories:
+            directory.mkdir(parents=True, exist_ok=True)
 
-    def _basename(self, s: Server) -> str:
-        name = s.name
-        num = ""
-        for i in range(len(name)-1, -1, -1):
-            if name[i].isdigit():
-                start = i
-                while start >= 0 and name[start].isdigit():
-                    start -= 1
-                num = name[start+1:i+1]
-                break
-        
-        if not num:
-            fallback = f"wg{s.station.replace('.', '')}"
-            return f"{fallback[:15]}.conf"
-        
-        base = f"{s.country_code}{num}"
-        return f"{base[:15]}.conf"
+    @staticmethod
+    def _write_jobs(jobs: list[_ConfigWriteJob], progress: Progress, task_id: TaskID) -> None:
+        for job in jobs:
+            with open(job.absolute_path, "w", encoding="utf-8") as file_handle:
+                file_handle.write(job.content)
+            progress.advance(task_id)
+
+    @staticmethod
+    def _sanitize_path_segment(segment: str) -> str:
+        return segment.lower().replace(" ", "_").translate(_PATH_SANITIZER)
+
+    @staticmethod
+    def _build_config_filename_root(server: Server) -> str:
+        match = _TRAILING_NUMBER_PATTERN.search(server.name)
+        if match is None:
+            fallback = f"wg{server.station.replace('.', '')}"
+            return fallback[:_FILENAME_MAX_LENGTH]
+        return f"{server.country_code}{match.group(1)}"[:_FILENAME_MAX_LENGTH]

@@ -1,20 +1,26 @@
 # NordVPN WireGuard Configuration Generator
 
-A professional command-line interface for generating optimized NordVPN WireGuard configurations. This tool interacts directly with NordVPN infrastructure to authenticate users, retrieve private keys, and select the optimal servers based on real-time network load and geographic proximity.
+A command line tool that generates optimized NordVPN WireGuard configurations. It communicates directly with NordVPN infrastructure to exchange access tokens for NordLynx private keys, fetches the live server catalogue, and ranks endpoints by current load and geographic distance from your detected location.
 
 ## Core Capabilities
 
-*   **Intelligent Optimization:** Algorithms prioritize servers by current load and physical distance to maximize throughput and minimize latency.
-*   **Automated Credential Exchange:** Securely exchanges standard access tokens for NordLynx private keys.
-*   **Structured Output:** Generates a clean directory hierarchy containing standard configurations and a dedicated `best_configs` subset for immediate deployment.
-*   **Dual Operation Modes:** Supports a rich interactive TUI for manual operation and strict non-interactive flags for automated pipelines.
-*   **Cross-Platform Availability:** Maintained in both Python and Go to ensure broad compatibility and performance.
+*   **Intelligent Server Selection:** Ranks endpoints by live load and Haversine distance from your detected location to maximize throughput and minimize latency.
+*   **Automated Credential Exchange:** Converts a standard NordVPN access token into a NordLynx private key without manual intervention.
+*   **Structured Output:** Produces a clean directory hierarchy containing the full server catalogue alongside a curated `best_configs` subset for immediate deployment.
+*   **Dual Operation Modes:** Accepts interactive prompts for manual use and explicit flags for scripted pipelines.
+*   **Runtime Tailored Builds:** Ships as a Python package for native installation and as a Go compiled Docker image for a minimal container footprint.
 
 ## Installation
 
 ### Python Package (PyPI)
 
-The application can be installed directly from the Python Package Index.
+Because this is a command line application, [`pipx`](https://pipx.pypa.io/) is the recommended installer. It isolates the tool inside its own environment and exposes the executable on your PATH without touching the system Python.
+
+```bash
+pipx install nord-config-generator
+```
+
+Plain `pip` is fully supported for environments where `pipx` is unavailable.
 
 ```bash
 pip install nord-config-generator
@@ -22,7 +28,7 @@ pip install nord-config-generator
 
 ## Docker Execution
 
-For a dependency-free environment, the application can be executed via Docker. To prevent filesystem permission conflicts and ensure generated configurations are owned by the host user, the output directory **must** be created manually before execution.
+For a dependency free environment, the application can be run via Docker. The container ships a Go compiled binary, which keeps the image small and startup near instant. To prevent filesystem permission conflicts and ensure generated configurations are owned by the host user, the output directory **must** be created manually before execution.
 
 ### Method 1: Docker Compose (Recommended)
 
@@ -43,7 +49,7 @@ For a dependency-free environment, the application can be executed via Docker. T
           - ./generated_configs:/data
     ```
 
-3.  **Execute the container:**
+3.  **Run the container:**
     ```sh
     docker-compose run --rm nordgen
     ```
@@ -67,16 +73,16 @@ if not exist "generated_configs" mkdir "generated_configs" && docker run -it --r
 
 ## Usage Guide
 
-The command-line interface is unified across all distributions. It supports both interactive prompts for manual configuration and flag-based execution for automated pipelines.
+The command line interface is unified across both distributions. It accepts interactive prompts for manual configuration and explicit flags for scripted pipelines.
 
 ### Primary Operations
 
-*   **Generation:** Execute `nordgen` to initiate the standard processing workflow.
-*   **Key Extraction:** Execute `nordgen get-key` to isolate the private key retrieval process.
+*   **Generation:** Run `nordgen` to fetch the catalogue and write configurations to the current directory.
+*   **Key Extraction:** Run `nordgen get-key` to retrieve only the NordLynx private key without writing configuration files.
 
 ### Reference
 
-For granular details on available flags, overrides, and parameters, invoke the internal documentation:
+For granular details on available flags, overrides, and parameters, invoke the built in help:
 
 ```bash
 nordgen --help
@@ -84,16 +90,17 @@ nordgen --help
 
 ## Web Interface
 
-A browser-based version of the generator is available for immediate use without local installation.
+A browser based version of the generator is available for immediate use without local installation.
 
 *   **Live Application:** [https://nordgen.selfhoster.win/](https://nordgen.selfhoster.win/)
 
 ## Support
 
-Contributions to project visibility and sustainability are appreciated.
+If this project saves you time, there are a few ways to give something back.
 
-1.  **Repository:** Star the project on GitHub.
-2.  **Referral:** [https://ref.nordvpn.com/MXIVDoJGpKT](https://ref.nordvpn.com/MXIVDoJGpKT)
+1.  **Star the repository** on GitHub so it reaches more people who need it.
+2.  **Sign up through the referral link** if you are new to NordVPN: [https://ref.nordvpn.com/MXIVDoJGpKT](https://ref.nordvpn.com/MXIVDoJGpKT)
+3.  **Buy me a coffee** on Ko-fi if you want to fuel future updates: [https://ko-fi.com/mustafachyi](https://ko-fi.com/mustafachyi)
 
 ## License
 
