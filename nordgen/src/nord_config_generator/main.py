@@ -34,7 +34,7 @@ async def _resolve_private_key(
     ui: ConsoleManager, client: NordClient, token: str
 ) -> str:
     if not token:
-        token = ui.prompt_secret("Please enter your NordVPN access token: ")
+        token = ui.prompt_secret("Please enter your NordVPN access token")
     if _TOKEN_PATTERN.fullmatch(token) is None:
         ui.error("Invalid token format")
         return ""
