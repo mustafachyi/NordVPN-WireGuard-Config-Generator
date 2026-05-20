@@ -1,0 +1,22 @@
+# fly.toml app configuration file generated for nordgen on 2026-05-20T22:52:20Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'nordgen'
+primary_region = 'cdg'
+
+[http_service]
+  auto_start_machines = true
+  auto_stop_machines = true
+  force_https = true
+  internal_port = 3000
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  cpu_kind = 'performance'
+  cpus = 1
+  memory = '2gb'
+  memory_mb = 2048
+  size = 'performance-cpu-1x'
