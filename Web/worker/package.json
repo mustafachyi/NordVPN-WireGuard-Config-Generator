@@ -1,0 +1,18 @@
+{
+  "name": "nordgen-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types",
+    "type-check": "bun run types && tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "0.8.0",
+    "hono": "4.12.32",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "wrangler": "4.115.0"
+  }
+}

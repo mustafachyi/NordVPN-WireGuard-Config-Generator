@@ -1,0 +1,49 @@
+{
+  "name": "nordgen-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-29",
+  "observability": {
+    "enabled": true
+  },
+  "cache": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "nordgen.selfhoster.win",
+      "custom_domain": true
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "NORDGEN_KV",
+      "id": "5d15ec05539f454c9ddaf338e949954b"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "API_RATE_LIMITER",
+      "namespace_id": "2708822786",
+      "simple": {
+        "limit": 100,
+        "period": 60
+      }
+    }
+  ],
+  "vars": {
+    "SERVER_SOURCE_URL": "https://nordcache.selfhoster.win/api/servers",
+    "NORDVPN_CREDENTIALS_URL": "https://api.nordvpn.com/v1/users/services/credentials"
+  },
+  "secrets": {
+    "required": ["SYNC_TOKEN"]
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "assets": {
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  }
+}
