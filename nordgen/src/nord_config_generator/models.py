@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+
 @dataclass(slots=True, frozen=True)
 class Server:
     name: str
@@ -14,6 +15,8 @@ class Server:
     public_key: str
     distance: float
     combo: str
+    latency: float | None = None  # measured RTT in ms; None if not probed / unreachable
+
 
 @dataclass(slots=True, frozen=True)
 class UserPreferences:
@@ -22,6 +25,8 @@ class UserPreferences:
     keepalive: int = 25
     groups: list[str] | None = None
     exclude_dedicated: bool = False
+    measure_latency: bool = False
+
 
 @dataclass(slots=True)
 class GenerationStats:
