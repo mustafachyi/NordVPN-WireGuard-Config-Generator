@@ -147,12 +147,24 @@ class ConsoleManager:
                 "Exclude dedicated IP servers?", console=self.console, default=defaults.exclude_dedicated
             )
 
+        measure_latency = defaults.measure_latency
+        if "measure_latency" not in provided:
+            if not prompted_any:
+                self.console.print("[info]Configuration Options (Enter for default)[/info]")
+                prompted_any = True
+            measure_latency = Confirm.ask(
+                "Measure server latency (TCP probe) to refine best_configs?",
+                console=self.console,
+                default=defaults.measure_latency,
+            )
+
         return UserPreferences(
             dns=dns,
             use_ip=use_ip,
             keepalive=keepalive,
             groups=defaults.groups,
             exclude_dedicated=exclude_dedicated,
+            measure_latency=measure_latency,
         )
 
     @contextmanager
