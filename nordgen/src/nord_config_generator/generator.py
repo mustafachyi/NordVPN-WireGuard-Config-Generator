@@ -1,5 +1,6 @@
 import asyncio
 import os
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -7,6 +8,7 @@ from datetime import datetime
 from rich.progress import Progress, TaskID
 
 from .client import NordClient
+from .latency import measure_latencies, pick_lowest_latency
 from .models import GenerationStats, Server, UserPreferences
 from .server_parser import parse_servers
 from .ui import ConsoleManager
@@ -15,6 +17,8 @@ _PATH_SANITIZE_TABLE: dict[int, int | None] = {ord(c): None for c in '<>:"/\\|?*
 _PATH_SANITIZE_TABLE[ord(" ")] = ord("_")
 
 _FILENAME_MAX_LENGTH = 15
+# How many load/distance candidates per location to probe when measuring latency
+_LATENCY_CANDIDATES_PER_LOCATION = 5
 
 
 @dataclass(slots=True, frozen=True)
@@ -58,22 +62,29 @@ class Generator:
             )
 
             unique_servers = list({s.name: s for s in all_parsed}.values())
-            
+
             if not unique_servers:
                 self.ui.fail("No servers found matching the specified filters")
                 return None
-                
+
             unique_servers.sort(key=lambda s: (s.load, s.distance))
 
             self.stats.total = len(unique_servers)
 
-            best_map: dict[tuple[str, str, str], Server] = {}
+            # Group by location so we can optionally probe several candidates
+            location_buckets: dict[tuple[str, str, str], list[Server]] = defaultdict(list)
             for s in unique_servers:
-                key = (s.combo, s.country, s.city)
-                if key not in best_map:
-                    best_map[key] = s
+                location_buckets[(s.combo, s.country, s.city)].append(s)
+
+            best_map: dict[tuple[str, str, str], Server] = {
+                key: servers[0] for key, servers in location_buckets.items()
+            }
             self.stats.best = len(best_map)
 
+        if preferences.measure_latency:
+            best_map = await self._refine_best_by_latency(location_buckets)
+
+        with self.ui.status("Building configuration jobs..."):
             standard_jobs = self._build_jobs(
                 unique_servers, "configs", private_key, preferences
             )
@@ -98,6 +109,41 @@ class Generator:
 
         return self.output_directory
 
+    async def _refine_best_by_latency(
+        self,
+        location_buckets: dict[tuple[str, str, str], list[Server]],
+    ) -> dict[tuple[str, str, str], Server]:
+        """Probe top candidates per location and keep the lowest-RTT server."""
+        candidates: list[Server] = []
+        key_to_slice: dict[tuple[str, str, str], tuple[int, int]] = {}
+        for key, servers in location_buckets.items():
+            start = len(candidates)
+            slice_servers = servers[:_LATENCY_CANDIDATES_PER_LOCATION]
+            candidates.extend(slice_servers)
+            key_to_slice[key] = (start, start + len(slice_servers))
+
+        self.ui.success(
+            f"Measuring TCP latency to {len(candidates)} candidate endpoints "
+            f"(up to {_LATENCY_CANDIDATES_PER_LOCATION} per location)..."
+        )
+
+        with self.ui.status("Probing servers..."):
+            measured = await measure_latencies(candidates)
+
+        best_map: dict[tuple[str, str, str], Server] = {}
+        reachable = 0
+        for key, (start, end) in key_to_slice.items():
+            group = measured[start:end]
+            chosen = pick_lowest_latency(group)
+            best_map[key] = chosen
+            if chosen.latency is not None:
+                reachable += 1
+
+        self.ui.success(
+            f"Latency probe complete — {reachable}/{len(best_map)} locations reachable"
+        )
+        return best_map
+
     def _build_jobs(
         self,
         servers: list[Server],
@@ -116,7 +162,7 @@ class Generator:
             country_seg = server.country.lower().translate(_PATH_SANITIZE_TABLE)
             city_seg = server.city.lower().translate(_PATH_SANITIZE_TABLE)
             fname_root = server.name.lower().translate(_PATH_SANITIZE_TABLE)[:_FILENAME_MAX_LENGTH]
-            
+
             if not fname_root:
                 fname_root = "unknown"
 
@@ -154,9 +200,9 @@ class Generator:
         chunk_size = 50
         cpu_count = os.cpu_count() or 1
         max_workers = min(64, max(4, cpu_count * 4))
-        
+
         chunks = [jobs[i : i + chunk_size] for i in range(0, len(jobs), chunk_size)]
-        
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
                 executor.submit(cls._write_jobs_chunk, chunk, progress, task_id)
