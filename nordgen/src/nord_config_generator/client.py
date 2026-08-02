@@ -45,13 +45,21 @@ class NordClient:
 
     async def __aenter__(self) -> Self:
         if self._session is None:
-            timeout = aiohttp.ClientTimeout(total=25, connect=5, sock_connect=5, sock_read=15)
+            timeout = aiohttp.ClientTimeout(
+                total=25,
+                connect=5,
+                sock_connect=5,
+                sock_read=15,
+            )
             connector = aiohttp.TCPConnector(
                 limit=10,
                 limit_per_host=10,
                 ttl_dns_cache=300,
             )
-            self._session = aiohttp.ClientSession(timeout=timeout, connector=connector)
+            self._session = aiohttp.ClientSession(
+                timeout=timeout,
+                connector=connector,
+            )
         return self
 
     async def __aexit__(
@@ -66,6 +74,7 @@ class NordClient:
 
     async def get_key(self, token: str) -> str:
         authorization = base64.b64encode(f"token:{token}".encode()).decode()
+
         try:
             payload = await self._get_json(
                 self._endpoints.credentials,
@@ -76,29 +85,41 @@ class NordClient:
             raise
         except NordClientError as error:
             raise NordClientError(f"get credentials: {error}") from error
+
         if not isinstance(payload, dict):
             raise NordClientError("credentials response was not a JSON object")
+
         value = payload.get("nordlynx_private_key")
         if not isinstance(value, str):
             raise NordClientError("credentials response did not contain a private key")
+
         private_key = value.strip()
+
         try:
             validate_key(private_key)
         except WireGuardValueError as error:
             raise NordClientError(
                 f"credentials response contained an invalid private key: {error}"
             ) from error
+
         return private_key
 
     async def get_geo(self) -> Coordinates:
         try:
-            payload = await self._get_json(self._endpoints.geo, None, GEO_RESPONSE_LIMIT)
+            payload = await self._get_json(
+                self._endpoints.geo,
+                None,
+                GEO_RESPONSE_LIMIT,
+            )
         except NordClientError as error:
             raise NordClientError(f"get geolocation: {error}") from error
+
         if not isinstance(payload, dict):
             raise NordClientError("geolocation response was not a JSON object")
+
         latitude = payload.get("latitude")
         longitude = payload.get("longitude")
+
         if (
             isinstance(latitude, bool)
             or isinstance(longitude, bool)
@@ -106,8 +127,10 @@ class NordClient:
             or not isinstance(longitude, int | float)
         ):
             raise NordClientError("geolocation response contained invalid coordinates")
+
         normalized_latitude = float(latitude)
         normalized_longitude = float(longitude)
+
         if (
             not isfinite(normalized_latitude)
             or not isfinite(normalized_longitude)
@@ -117,17 +140,25 @@ class NordClient:
             or normalized_longitude > 180
         ):
             raise NordClientError("geolocation response contained invalid coordinates")
+
         return Coordinates(normalized_latitude, normalized_longitude)
 
     async def get_servers(self) -> list[object]:
         try:
-            payload = await self._get_json(self._endpoints.servers, None, SERVERS_RESPONSE_LIMIT)
+            payload = await self._get_json(
+                self._endpoints.servers,
+                None,
+                SERVERS_RESPONSE_LIMIT,
+            )
         except NordClientError as error:
             raise NordClientError(f"get servers: {error}") from error
+
         if not isinstance(payload, list):
             raise NordClientError("server response was not a JSON array")
+
         if not payload:
             raise NordClientError("server response was empty")
+
         return payload
 
     async def _get_json(
@@ -138,12 +169,15 @@ class NordClient:
     ) -> object:
         if self._session is None:
             raise RuntimeError("NordClient must be used as an async context manager")
+
         request_headers = {
             "Accept": "application/json",
             "User-Agent": USER_AGENT,
         }
+
         if headers:
             request_headers.update(headers)
+
         try:
             async with self._session.get(
                 target,
@@ -152,21 +186,36 @@ class NordClient:
             ) as response:
                 if response.status in {401, 403}:
                     raise UnauthorizedError(f"HTTP {response.status}")
+
                 if response.status != 200:
-                    raise NordClientError(f"unexpected HTTP status {response.status}")
-                if response.content_length is not None and response.content_length > limit:
+                    raise NordClientError(
+                        f"unexpected HTTP status {response.status}"
+                    )
+
+                if (
+                    response.content_length is not None
+                    and response.content_length > limit
+                ):
                     raise NordClientError(f"response exceeded {limit} bytes")
-                body = await response.content.read(limit + 1)
+
+                body = bytearray()
+
+                async for chunk in response.content.iter_chunked(64 * 1024):
+                    if len(body) + len(chunk) > limit:
+                        raise NordClientError(f"response exceeded {limit} bytes")
+
+                    body.extend(chunk)
+
         except UnauthorizedError:
             raise
         except NordClientError:
             raise
         except (TimeoutError, aiohttp.ClientError) as error:
             raise NordClientError(f"perform request: {error}") from error
-        if len(body) > limit:
-            raise NordClientError(f"response exceeded {limit} bytes")
+
         if not body:
             raise NordClientError("response body was empty")
+
         try:
             return cast(object, json.loads(body))
         except (json.JSONDecodeError, UnicodeDecodeError) as error:
