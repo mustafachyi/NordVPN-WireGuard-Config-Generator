@@ -2,128 +2,164 @@ package generator
 
 import (
 	"math"
+	"net/netip"
 	"sort"
 	"strings"
 
 	"nordgen/internal/constants"
 	"nordgen/internal/models"
+	"nordgen/internal/wireguard"
 )
 
 const earthRadiusKM = 6371.0
 
-func parseServers(rawServers []models.RawServer, obsLat, obsLon float64, reqGroups []string, excDedicated bool) []models.Server {
-	reqMap := make(map[string]struct{}, len(reqGroups))
-	for _, rg := range reqGroups {
-		reqMap[rg] = struct{}{}
+func parseServers(rawServers []models.RawServer, observer *models.Coordinates, reqGroups []string, excludeDedicated, useIP bool) []models.Server {
+	required := make(map[string]struct{}, len(reqGroups))
+	for _, group := range reqGroups {
+		required[group] = struct{}{}
 	}
 
-	obsLatRad := obsLat * math.Pi / 180.0
-	obsLonRad := obsLon * math.Pi / 180.0
-	obsLatCos := math.Cos(obsLatRad)
+	var observerLatitudeRadians float64
+	var observerLongitudeRadians float64
+	var observerLatitudeCosine float64
+	if observer != nil {
+		observerLatitudeRadians = observer.Latitude * math.Pi / 180
+		observerLongitudeRadians = observer.Longitude * math.Pi / 180
+		observerLatitudeCosine = math.Cos(observerLatitudeRadians)
+	}
 
 	parsed := make([]models.Server, 0, len(rawServers))
-
 	for _, raw := range rawServers {
-		var typeGroupIDs []string
-		hasDedicated := false
+		if raw.Load < 0 || raw.Load > 100 || len(raw.Locations) == 0 {
+			continue
+		}
 
-		for _, g := range raw.Groups {
-			gid := g.Identifier
-			if _, exists := constants.TypeGroups[gid]; !exists {
+		hostname := strings.ToLower(strings.TrimSpace(raw.Hostname))
+		if err := wireguard.ValidateEndpoint(hostname); err != nil {
+			continue
+		}
+
+		station := strings.TrimSpace(raw.Station)
+		if useIP {
+			address, err := netip.ParseAddr(station)
+			if err != nil {
 				continue
 			}
-			typeGroupIDs = append(typeGroupIDs, gid)
-			if gid == "legacy_dedicated_ip" {
+			station = address.String()
+		}
+
+		groupSet := make(map[string]struct{}, len(raw.Groups))
+		hasDedicated := false
+		for _, group := range raw.Groups {
+			identifier := group.Identifier
+			if !constants.IsTypeGroup(identifier) {
+				continue
+			}
+			groupSet[identifier] = struct{}{}
+			if identifier == constants.GroupDedicatedID {
 				hasDedicated = true
 			}
 		}
-
-		if len(typeGroupIDs) == 0 {
+		if len(groupSet) == 0 || excludeDedicated && hasDedicated {
 			continue
 		}
-		if excDedicated && hasDedicated {
-			continue
-		}
-
-		if len(reqMap) > 0 {
-			hasAll := true
-			for rg := range reqMap {
-				found := false
-				for _, tg := range typeGroupIDs {
-					if tg == rg {
-						found = true
-						break
-					}
-				}
-				if !found {
-					hasAll = false
-					break
-				}
-			}
-			if !hasAll {
-				continue
-			}
-		}
-
-		sort.Strings(typeGroupIDs)
-		comboParts := make([]string, len(typeGroupIDs))
-		for i, g := range typeGroupIDs {
-			comboParts[i] = constants.GroupIDToAlias[g]
-		}
-		combo := strings.Join(comboParts, "_")
-
-		var pubKey string
-		for _, tech := range raw.Technologies {
-			for _, meta := range tech.Metadata {
-				if meta.Name == "public_key" && meta.Value != "" {
-					pubKey = meta.Value
-					break
-				}
-			}
-			if pubKey != "" {
-				break
-			}
-		}
-
-		if pubKey == "" || len(raw.Locations) == 0 {
+		if !containsAllGroups(groupSet, required) {
 			continue
 		}
 
-		loc := raw.Locations[0]
-		latRad := loc.Latitude * math.Pi / 180.0
-		dlat := latRad - obsLatRad
-		dlon := (loc.Longitude * math.Pi / 180.0) - obsLonRad
-
-		sinDLat := math.Sin(dlat / 2.0)
-		sinDLon := math.Sin(dlon / 2.0)
-		a := (sinDLat * sinDLat) + obsLatCos*math.Cos(latRad)*(sinDLon*sinDLon)
-
-		if a > 1.0 {
-			a = 1.0
-		} else if a < 0.0 {
-			a = 0.0
+		groupIDs := make([]string, 0, len(groupSet))
+		for identifier := range groupSet {
+			groupIDs = append(groupIDs, identifier)
+		}
+		sort.Strings(groupIDs)
+		comboParts := make([]string, len(groupIDs))
+		for index, identifier := range groupIDs {
+			comboParts[index], _ = constants.GroupAlias(identifier)
 		}
 
-		dist := earthRadiusKM * 2 * math.Asin(math.Sqrt(a))
+		publicKey := findPublicKey(raw.Technologies)
+		if err := wireguard.ValidateKey(publicKey); err != nil {
+			continue
+		}
 
-		nameParts := strings.SplitN(raw.Hostname, ".", 2)
-		name := nameParts[0]
+		location := raw.Locations[0]
+		if !validCoordinates(location.Latitude, location.Longitude) {
+			continue
+		}
+		country := strings.TrimSpace(location.Country.Name)
+		city := strings.TrimSpace(location.Country.City.Name)
+		if country == "" || city == "" {
+			continue
+		}
+
+		name := strings.SplitN(hostname, ".", 2)[0]
+		if name == "" {
+			continue
+		}
+
+		distance := 0.0
+		if observer != nil {
+			distance = calculateDistance(
+				observerLatitudeRadians,
+				observerLongitudeRadians,
+				observerLatitudeCosine,
+				location.Latitude,
+				location.Longitude,
+			)
+		}
 
 		parsed = append(parsed, models.Server{
-			Name:        name,
-			Hostname:    raw.Hostname,
-			Station:     raw.Station,
-			Load:        raw.Load,
-			Country:     loc.Country.Name,
-			CountryCode: strings.ToLower(loc.Country.Code),
-			City:        loc.Country.City.Name,
-			Latitude:    loc.Latitude,
-			Longitude:   loc.Longitude,
-			PublicKey:   pubKey,
-			Distance:    dist,
-			Combo:       combo,
+			Name:      name,
+			Hostname:  hostname,
+			Station:   station,
+			Load:      raw.Load,
+			Country:   country,
+			City:      city,
+			PublicKey: publicKey,
+			Distance:  distance,
+			Combo:     strings.Join(comboParts, "_"),
 		})
 	}
 
 	return parsed
+}
+
+func containsAllGroups(actual, required map[string]struct{}) bool {
+	for group := range required {
+		if _, exists := actual[group]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func findPublicKey(technologies []models.RawTechnology) string {
+	for _, technology := range technologies {
+		for _, metadata := range technology.Metadata {
+			if metadata.Name == "public_key" {
+				if value := strings.TrimSpace(metadata.Value); value != "" {
+					return value
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func validCoordinates(latitude, longitude float64) bool {
+	return !math.IsNaN(latitude) && !math.IsNaN(longitude) &&
+		!math.IsInf(latitude, 0) && !math.IsInf(longitude, 0) &&
+		latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180
+}
+
+func calculateDistance(observerLatitudeRadians, observerLongitudeRadians, observerLatitudeCosine, latitude, longitude float64) float64 {
+	latitudeRadians := latitude * math.Pi / 180
+	latitudeDelta := latitudeRadians - observerLatitudeRadians
+	longitudeDelta := longitude*math.Pi/180 - observerLongitudeRadians
+
+	latitudeSine := math.Sin(latitudeDelta / 2)
+	longitudeSine := math.Sin(longitudeDelta / 2)
+	a := latitudeSine*latitudeSine + observerLatitudeCosine*math.Cos(latitudeRadians)*longitudeSine*longitudeSine
+	a = math.Max(0, math.Min(1, a))
+	return earthRadiusKM * 2 * math.Asin(math.Sqrt(a))
 }

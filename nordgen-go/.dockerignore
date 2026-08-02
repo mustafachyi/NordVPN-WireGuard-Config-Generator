@@ -1,0 +1,10 @@
+.git
+.github
+.gitignore
+README.md
+coverage.out
+nordgen
+nordgen.exe
+*.test
+**/*_test.go
+nordvpn_configs_*

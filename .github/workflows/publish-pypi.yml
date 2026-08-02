@@ -1,0 +1,138 @@
+name: Publish Python Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Package index
+        required: true
+        default: testpypi
+        type: choice
+        options:
+          - testpypi
+          - pypi
+      version:
+        description: Exact project version to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-python-${{ inputs.repository }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require main branch for PyPI
+        if: inputs.repository == 'pypi' && github.ref != 'refs/heads/main'
+        run: exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Verify requested version
+        working-directory: nordgen
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: python -c "import os, pathlib, tomllib; actual = tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version']; requested = os.environ['REQUESTED_VERSION']; assert actual == requested, f'pyproject version {actual} does not match requested version {requested}'"
+
+  verify:
+    uses: ./.github/workflows/python-ci.yml
+
+  build:
+    needs:
+      - validate
+      - verify
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nordgen
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: nordgen/pyproject.toml
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip && python -m pip install "build>=1.5,<2" "twine>=7,<8"
+
+      - name: Build distributions
+        run: rm -rf build dist && python -m build
+
+      - name: Verify distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Store distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-package-distributions
+          path: nordgen/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-testpypi:
+    if: inputs.repository == 'testpypi'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/nord-config-generator
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-package-distributions
+          path: nordgen/dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: nordgen/dist/
+          repository-url: https://test.pypi.org/legacy/
+          print-hash: true
+
+  publish-pypi:
+    if: inputs.repository == 'pypi'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/nord-config-generator
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-package-distributions
+          path: nordgen/dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: nordgen/dist/
+          print-hash: true

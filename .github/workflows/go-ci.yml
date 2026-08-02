@@ -1,0 +1,144 @@
+name: Go CI
+
+on:
+  push:
+    paths:
+      - nordgen-go/**
+      - .github/workflows/go-ci.yml
+      - .github/workflows/docker-publish.yml
+  pull_request:
+    paths:
+      - nordgen-go/**
+      - .github/workflows/go-ci.yml
+      - .github/workflows/docker-publish.yml
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+  GOFLAGS: -mod=readonly
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nordgen-go
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: nordgen-go/go.mod
+          cache: true
+          cache-dependency-path: nordgen-go/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Verify module files
+        env:
+          GOFLAGS: ""
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Run static analysis
+        run: go vet ./...
+
+      - name: Run tests with race detection and coverage
+        run: go test -race -shuffle=on -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Report and enforce coverage
+        run: |
+          go tool cover -func=coverage.out
+          go tool cover -func=coverage.out | awk 'BEGIN { found=0 } /^total:/ { found=1; gsub(/%/, "", $3); if ($3 + 0 < 90) exit 1 } END { if (!found) exit 1 }'
+
+      - name: Build CLI
+        run: go build -buildvcs=false -trimpath -ldflags="-s -w -buildid=" ./cmd/nordgen
+
+      - name: Scan vulnerabilities
+        env:
+          GOFLAGS: ""
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+  platform-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: nordgen-go
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: nordgen-go/go.mod
+          cache: true
+          cache-dependency-path: nordgen-go/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run tests
+        run: go test -count=1 ./...
+
+      - name: Build CLI
+        run: go build -buildvcs=false -trimpath -ldflags="-s -w -buildid=" ./cmd/nordgen
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build container
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ./nordgen-go
+          file: ./nordgen-go/Dockerfile
+          load: true
+          push: false
+          pull: true
+          tags: nordgen:ci
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test container
+        run: docker run --rm nordgen:ci help

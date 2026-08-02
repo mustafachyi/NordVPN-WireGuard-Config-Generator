@@ -1,166 +1,392 @@
 import asyncio
 import os
-from concurrent.futures import ThreadPoolExecutor
+import queue
+import shutil
+import tempfile
+import threading
+import time
+import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Protocol
 
-from rich.progress import Progress, TaskID
+from .constants import GROUP_DEDICATED_ID, TYPE_GROUPS
+from .models import Coordinates, GenerationStats, Server, UserPreferences
+from .permissions import secure_output_root
+from .server_parser import parse_servers, valid_coordinates
+from .ui import ConsoleManager, ProgressHandle
+from .wireguard import WireGuardValueError, build_config, validate_key
 
-from .client import NordClient
-from .models import GenerationStats, Server, UserPreferences
-from .server_parser import parse_servers
-from .ui import ConsoleManager
+FILE_NAME_MAX_BYTES = 15
+DIRECTORY_MAX_BYTES = 64
 
-_PATH_SANITIZE_TABLE: dict[int, int | None] = {ord(c): None for c in '<>:"/\\|?*\0'}
-_PATH_SANITIZE_TABLE[ord(" ")] = ord("_")
 
-_FILENAME_MAX_LENGTH = 15
+class ServerClient(Protocol):
+    async def get_geo(self) -> Coordinates: ...
+
+    async def get_servers(self) -> list[object]: ...
+
+
+class GenerationError(RuntimeError):
+    pass
 
 
 @dataclass(slots=True, frozen=True)
-class _ConfigWriteJob:
-    absolute_path: str
-    content: str
+class FileJob:
+    path: Path
+    content: bytes
+
+
+class FilePathAllocator:
+    def __init__(self) -> None:
+        self._used: set[Path] = set()
+        self._next_suffix: dict[Path, int] = {}
+
+    def allocate(self, directory: Path, name_root: str) -> Path:
+        base = directory / name_root
+        suffix = self._next_suffix.get(base, 0)
+        while True:
+            file_name = f"{name_root}.conf" if suffix == 0 else f"{name_root}_{suffix}.conf"
+            candidate = directory / file_name
+            suffix += 1
+            if candidate in self._used:
+                continue
+            self._used.add(candidate)
+            self._next_suffix[base] = suffix
+            return candidate
 
 
 class Generator:
-    def __init__(self, client: NordClient, ui: ConsoleManager) -> None:
+    def __init__(
+        self,
+        client: ServerClient,
+        ui: ConsoleManager,
+        *,
+        working_directory: Path | None = None,
+        time_ns: Callable[[], int] = time.time_ns,
+    ) -> None:
         self.client = client
         self.ui = ui
         self.stats = GenerationStats()
-        self.output_directory: str = ""
+        self.working_directory = working_directory or Path.cwd()
+        self._time_ns = time_ns
 
-    async def process(
-        self, private_key: str, preferences: UserPreferences
-    ) -> str | None:
-        self.output_directory = f"nordvpn_configs_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    async def process(self, private_key: str, preferences: UserPreferences) -> Path:
+        self.stats = GenerationStats()
+        preferences.validate()
+        _validate_groups(preferences)
+        try:
+            validate_key(private_key)
+        except WireGuardValueError as error:
+            raise GenerationError(f"invalid private key: {error}") from error
 
         with self.ui.status("Fetching data..."):
-            (latitude, longitude), raw_servers = await asyncio.gather(
-                self.client.get_geo(),
-                self.client.get_servers(),
+            geo_task: asyncio.Task[Coordinates] = asyncio.create_task(self.client.get_geo())
+            servers_task: asyncio.Task[list[object]] = asyncio.create_task(
+                self.client.get_servers()
             )
+            try:
+                raw_servers = await servers_task
+            except BaseException:
+                geo_task.cancel()
+                await asyncio.gather(geo_task, return_exceptions=True)
+                raise
+            if not raw_servers:
+                geo_task.cancel()
+                await asyncio.gather(geo_task, return_exceptions=True)
+                raise GenerationError("server data was empty")
+            try:
+                coordinates = await geo_task
+            except Exception:
+                coordinates = None
+        self.ui.success("Fetched server data")
 
-        if not raw_servers:
-            self.ui.fail("Failed to fetch server data")
-            return None
-        self.ui.success("Data fetched")
+        observer = coordinates
+        if observer is None or not valid_coordinates(observer.latitude, observer.longitude):
+            observer = None
+            self.ui.info("Location unavailable; optimizing equal-load servers by name")
 
         with self.ui.status("Processing dataset..."):
-            required_groups = set(preferences.groups) if preferences.groups else None
-
-            all_parsed = parse_servers(
+            parsed = parse_servers(
                 raw_servers,
-                latitude,
-                longitude,
-                required_groups=required_groups,
-                exclude_dedicated=preferences.exclude_dedicated,
+                observer,
+                preferences.groups,
+                preferences.exclude_dedicated,
+                preferences.use_ip,
             )
+            parsed.sort(key=_server_sort_key)
 
-            unique_servers = list({s.name: s for s in all_parsed}.values())
-            
+            unique_servers: list[Server] = []
+            seen_hostnames: set[str] = set()
+            for server in parsed:
+                if server.hostname in seen_hostnames:
+                    continue
+                seen_hostnames.add(server.hostname)
+                unique_servers.append(server)
             if not unique_servers:
-                self.ui.fail("No servers found matching the specified filters")
-                return None
-                
-            unique_servers.sort(key=lambda s: (s.load, s.distance))
+                raise GenerationError("no servers matched filters")
 
-            self.stats.total = len(unique_servers)
+            best_servers: list[Server] = []
+            seen_best: set[tuple[str, str, str]] = set()
+            for server in unique_servers:
+                key = (server.combo, server.country, server.city)
+                if key in seen_best:
+                    continue
+                seen_best.add(key)
+                best_servers.append(server)
 
-            best_map: dict[tuple[str, str, str], Server] = {}
-            for s in unique_servers:
-                key = (s.combo, s.country, s.city)
-                if key not in best_map:
-                    best_map[key] = s
-            self.stats.best = len(best_map)
-
-            standard_jobs = self._build_jobs(
-                unique_servers, "configs", private_key, preferences
-            )
-            best_jobs = self._build_jobs(
-                list(best_map.values()), "best_configs", private_key, preferences
-            )
-
-        try:
-            all_jobs = standard_jobs + best_jobs
-            await asyncio.to_thread(
-                self._materialize_directories, all_jobs
-            )
-
-            with self.ui.progress() as progress:
-                task = progress.add_task("Writing all configs", total=len(all_jobs))
-                await asyncio.to_thread(
-                    self._write_jobs_parallel, all_jobs, progress, task
+            self.stats = GenerationStats(total=len(unique_servers), best=len(best_servers))
+            output_name = _output_directory_name(self._time_ns())
+            try:
+                temporary_root = Path(
+                    tempfile.mkdtemp(prefix=".nordgen-", dir=self.working_directory)
                 )
-        except OSError as err:
-            self.ui.fail(f"Filesystem error: {err}")
-            return None
+            except OSError as error:
+                raise GenerationError(f"create temporary output directory: {error}") from error
+            try:
+                secure_output_root(temporary_root)
+                jobs = self._build_jobs(
+                    temporary_root,
+                    unique_servers,
+                    "configs",
+                    private_key,
+                    preferences,
+                )
+                jobs.extend(
+                    self._build_jobs(
+                        temporary_root,
+                        best_servers,
+                        "best_configs",
+                        private_key,
+                        preferences,
+                    )
+                )
+            except BaseException:
+                shutil.rmtree(temporary_root, ignore_errors=True)
+                raise
+        self.ui.success("Dataset processed")
 
-        return self.output_directory
+        committed = False
+        try:
+            await self._write_jobs(jobs)
+            final_path = self.working_directory / output_name
+            try:
+                final_path.lstat()
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                raise GenerationError(f"inspect output destination: {error}") from error
+            else:
+                raise GenerationError(
+                    f"commit output directory: destination already exists: {final_path}"
+                )
+            try:
+                temporary_root.rename(final_path)
+            except OSError as error:
+                raise GenerationError(f"commit output directory: {error}") from error
+            committed = True
+            self.ui.success("Configuration files written")
+            return final_path
+        finally:
+            if not committed:
+                shutil.rmtree(temporary_root, ignore_errors=True)
 
     def _build_jobs(
         self,
+        root: Path,
         servers: list[Server],
         subdirectory: str,
         private_key: str,
         preferences: UserPreferences,
-    ) -> list[_ConfigWriteJob]:
-        jobs: list[_ConfigWriteJob] = []
-        counts: dict[str, int] = {}
-        base_dir = self.output_directory
-
-        interface_block = f"[Interface]\nPrivateKey = {private_key}\nAddress = 10.5.0.2/16\nDNS = {preferences.dns}\n\n[Peer]\n"
-        keepalive_block = f"\nPersistentKeepalive = {preferences.keepalive}"
-
+    ) -> list[FileJob]:
+        allocator = FilePathAllocator()
+        jobs: list[FileJob] = []
         for server in servers:
-            country_seg = server.country.lower().translate(_PATH_SANITIZE_TABLE)
-            city_seg = server.city.lower().translate(_PATH_SANITIZE_TABLE)
-            fname_root = server.name.lower().translate(_PATH_SANITIZE_TABLE)[:_FILENAME_MAX_LENGTH]
-            
-            if not fname_root:
-                fname_root = "unknown"
-
-            directory = os.path.join(
-                base_dir, subdirectory, server.combo, country_seg, city_seg
-            )
-            candidate = os.path.join(directory, f"{fname_root}.conf")
-
-            count = counts.get(candidate, 0)
-            counts[candidate] = count + 1
-            final_path = candidate if count == 0 else os.path.join(directory, f"{fname_root}_{count}.conf")
-
+            country = canonical_path_segment(server.country, DIRECTORY_MAX_BYTES)
+            city = canonical_path_segment(server.city, DIRECTORY_MAX_BYTES)
+            combo = canonical_path_segment(server.combo, DIRECTORY_MAX_BYTES)
+            name_root = canonical_path_segment(server.name, FILE_NAME_MAX_BYTES)
+            directory = root / subdirectory / combo / country / city
+            path = allocator.allocate(directory, name_root)
             endpoint = server.station if preferences.use_ip else server.hostname
-            content = f"{interface_block}PublicKey = {server.public_key}\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = {endpoint}:51820{keepalive_block}"
-            jobs.append(_ConfigWriteJob(absolute_path=final_path, content=content))
+            try:
+                content = build_config(
+                    private_key,
+                    server.public_key,
+                    endpoint,
+                    preferences.dns,
+                    preferences.keepalive,
+                )
+            except WireGuardValueError as error:
+                raise GenerationError(f"server {server.hostname}: {error}") from error
+            jobs.append(FileJob(path, content))
         return jobs
 
-    @staticmethod
-    def _materialize_directories(jobs: list[_ConfigWriteJob]) -> None:
-        unique_dirs = {os.path.dirname(job.absolute_path) for job in jobs}
-        for d in unique_dirs:
-            os.makedirs(d, exist_ok=True)
+    async def _write_jobs(self, jobs: list[FileJob]) -> None:
+        if not jobs:
+            return
+        with self.ui.status("Preparing file system..."):
+            directories = sorted({job.path.parent for job in jobs}, key=os.fspath)
+            for directory in directories:
+                directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.ui.success("File system prepared")
 
-    @staticmethod
-    def _write_jobs_chunk(jobs: list[_ConfigWriteJob], progress: Progress, task_id: TaskID) -> None:
-        for job in jobs:
-            with open(job.absolute_path, "w", encoding="utf-8") as f:
-                f.write(job.content)
-        progress.advance(task_id, len(jobs))
+        stop_event = threading.Event()
+        with self.ui.progress(len(jobs), "Writing all configs") as progress:
+            write_task = asyncio.create_task(
+                asyncio.to_thread(_write_jobs_parallel, jobs, progress, stop_event)
+            )
+            try:
+                await asyncio.shield(write_task)
+            except asyncio.CancelledError:
+                stop_event.set()
+                try:
+                    await asyncio.shield(write_task)
+                except Exception:
+                    pass
+                raise
+        if stop_event.is_set():
+            raise GenerationError("configuration write stopped before completion")
 
-    @classmethod
-    def _write_jobs_parallel(
-        cls, jobs: list[_ConfigWriteJob], progress: Progress, task_id: TaskID
-    ) -> None:
-        chunk_size = 50
-        cpu_count = os.cpu_count() or 1
-        max_workers = min(64, max(4, cpu_count * 4))
-        
-        chunks = [jobs[i : i + chunk_size] for i in range(0, len(jobs), chunk_size)]
-        
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(cls._write_jobs_chunk, chunk, progress, task_id)
-                for chunk in chunks
-            ]
-            for future in futures:
-                future.result()
+
+def canonical_path_segment(segment: str, maximum_bytes: int = 0) -> str:
+    normalized = segment.strip().lower()
+    mapped = "".join(
+        "_"
+        if unicodedata.category(character).startswith("C")
+        or character.isspace()
+        or character in '<>:"/\\|?*'
+        else character
+        for character in normalized
+    )
+    if maximum_bytes > 0:
+        mapped = truncate_utf8(mapped, maximum_bytes)
+    mapped = mapped.rstrip(". ")
+    if mapped in {"", ".", ".."}:
+        return "unknown"
+    if _is_windows_reserved_name(mapped):
+        mapped = f"_{mapped}"
+        if maximum_bytes > 0:
+            mapped = truncate_utf8(mapped, maximum_bytes)
+        mapped = mapped.rstrip(". ")
+        if mapped in {"", ".", ".."}:
+            return "unknown"
+    return mapped
+
+
+def truncate_utf8(value: str, maximum_bytes: int) -> str:
+    encoded = value.encode()
+    if maximum_bytes <= 0 or len(encoded) <= maximum_bytes:
+        return value
+    truncated = encoded[:maximum_bytes]
+    while truncated:
+        try:
+            return truncated.decode()
+        except UnicodeDecodeError:
+            truncated = truncated[:-1]
+    return ""
+
+
+def _is_windows_reserved_name(segment: str) -> bool:
+    base = segment.split(".", 1)[0].upper()
+    if base in {"CON", "PRN", "AUX", "NUL", "CLOCK$", "CONIN$", "CONOUT$"}:
+        return True
+    return len(base) == 4 and base[:3] in {"COM", "LPT"} and base[3] in "123456789¹²³"
+
+
+def _validate_groups(preferences: UserPreferences) -> None:
+    seen: set[str] = set()
+    for group in preferences.groups:
+        if group not in TYPE_GROUPS:
+            raise ValueError(f'unknown server group identifier "{group}"')
+        if group in seen:
+            raise ValueError(f'duplicate server group identifier "{group}"')
+        seen.add(group)
+        if preferences.exclude_dedicated and group == GROUP_DEDICATED_ID:
+            raise ValueError("cannot require the dedicated group while excluding dedicated servers")
+
+
+def _server_sort_key(server: Server) -> tuple[int, float, str, str, str, str, str, str]:
+    return (
+        server.load,
+        server.distance,
+        server.hostname,
+        server.combo,
+        server.country,
+        server.city,
+        server.station,
+        server.public_key,
+    )
+
+
+def _output_directory_name(now_ns: int) -> str:
+    seconds, nanoseconds = divmod(now_ns, 1_000_000_000)
+    timestamp = datetime.fromtimestamp(seconds).strftime("%Y%m%d_%H%M%S")
+    return f"nordvpn_configs_{timestamp}_{nanoseconds:09d}"
+
+
+def _write_jobs_parallel(
+    jobs: list[FileJob],
+    progress: ProgressHandle,
+    stop_event: threading.Event,
+) -> None:
+    job_queue: queue.Queue[FileJob] = queue.Queue()
+    for job in jobs:
+        job_queue.put_nowait(job)
+
+    worker_count = min(len(jobs), max(2, min(32, (os.cpu_count() or 1) * 2)))
+    first_error: list[BaseException] = []
+    error_lock = threading.Lock()
+
+    def worker() -> None:
+        while not stop_event.is_set():
+            try:
+                job = job_queue.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                _write_file_exclusive(job.path, job.content)
+                progress.advance()
+            except BaseException as error:
+                with error_lock:
+                    if not first_error:
+                        first_error.append(error)
+                stop_event.set()
+                return
+            finally:
+                job_queue.task_done()
+
+    workers = [threading.Thread(target=worker, daemon=False) for _ in range(worker_count)]
+    for thread in workers:
+        thread.start()
+    for thread in workers:
+        thread.join()
+
+    if first_error:
+        raise GenerationError(f"write configuration files: {first_error[0]}") from first_error[0]
+    if stop_event.is_set() or not job_queue.empty():
+        raise GenerationError("configuration write stopped before completion")
+
+
+def _write_file_exclusive(path: Path, content: bytes) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(content)
+        descriptor = -1
+    except BaseException:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        descriptor = -1
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        raise
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
