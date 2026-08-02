@@ -4,7 +4,7 @@ A command-line tool that generates optimized NordVPN WireGuard configurations. I
 
 ## Core Capabilities
 
-*   **Intelligent Server Selection:** Ranks endpoints by live load and Haversine distance from your detected location to maximize throughput and minimize latency.
+*   **Intelligent Server Selection:** Ranks endpoints by live load and Haversine distance from your detected location. Optionally probes TCP connect latency (`-l` / `--latency`) so `best_configs` reflect real RTT from your machine.
 *   **Automated Credential Exchange:** Converts a standard NordVPN access token into a NordLynx private key without manual intervention.
 *   **Structured Output:** Produces a clean directory hierarchy containing the full server catalogue alongside a curated `best_configs` subset for immediate deployment.
 *   **Dual Operation Modes:** Accepts interactive prompts for manual use and explicit flags for scripted pipelines.
@@ -90,6 +90,7 @@ The command-line interface is unified across both distributions. It accepts inte
 | `-k`, `--keepalive` | Persistent Keepalive interval (seconds) | `25` |
 | `-g`, `--group` | Server groups to include (`standard`, `p2p`, `dedicated`, `onion`, `double`) | All groups |
 | `-e`, `--exclude-dedicated`| Exclude dedicated IP group servers from generating | `false` |
+| `-l`, `--latency` | Measure TCP connect latency to candidates and rank `best_configs` by real RTT | `false` |
 
 ### Help
 
