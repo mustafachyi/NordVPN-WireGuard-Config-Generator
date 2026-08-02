@@ -44,6 +44,13 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         help="Exclude servers in the dedicated IP group",
         default=argparse.SUPPRESS
     )
+    parser.add_argument(
+        "-l",
+        "--latency",
+        action="store_true",
+        help="Measure TCP connect latency to candidate servers and rank best_configs by RTT",
+        default=argparse.SUPPRESS,
+    )
 
     subparsers = parser.add_subparsers(dest="command", title="Commands", metavar="<command>")
     
@@ -154,6 +161,7 @@ async def main() -> None:
             use_ip = args_dict.get("ip", False)
             keepalive = args_dict.get("keepalive", 25)
             exclude_dedicated = args_dict.get("exclude_dedicated", False)
+            measure_latency = args_dict.get("latency", False)
             
             internal_groups = None
             if "group" in args_dict and args_dict["group"] is not None:
@@ -165,10 +173,13 @@ async def main() -> None:
                 keepalive=keepalive,
                 groups=internal_groups,
                 exclude_dedicated=exclude_dedicated,
+                measure_latency=measure_latency,
             )
             
             if "ip" in provided_args:
                 provided_args.add("use_ip")
+            if "latency" in provided_args:
+                provided_args.add("measure_latency")
                 
             await _run_generate(ui, client, token, prefs, provided_args)
 
