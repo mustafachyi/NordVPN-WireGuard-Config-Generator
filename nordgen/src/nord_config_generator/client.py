@@ -188,14 +188,9 @@ class NordClient:
                     raise UnauthorizedError(f"HTTP {response.status}")
 
                 if response.status != 200:
-                    raise NordClientError(
-                        f"unexpected HTTP status {response.status}"
-                    )
+                    raise NordClientError(f"unexpected HTTP status {response.status}")
 
-                if (
-                    response.content_length is not None
-                    and response.content_length > limit
-                ):
+                if response.content_length is not None and response.content_length > limit:
                     raise NordClientError(f"response exceeded {limit} bytes")
 
                 body = bytearray()

@@ -91,9 +91,7 @@ async def test_get_key_sends_headers_and_validates_response(key_factory) -> None
         expected = base64.b64encode(("token:" + "a" * 64).encode()).decode()
         assert request.headers["Authorization"] == f"Basic {expected}"
 
-        return web.json_response(
-            {"nordlynx_private_key": f"  {key}  "}
-        )
+        return web.json_response({"nordlynx_private_key": f"  {key}  "})
 
     async with serve(handler) as root:
         async with NordClient(endpoints=endpoints(root)) as client:
@@ -183,9 +181,7 @@ async def test_get_servers_accepts_nonempty_array_and_rejects_other_payloads() -
 
     async with serve(handler) as root:
         async with NordClient(endpoints=endpoints(root)) as client:
-            assert await client.get_servers() == [
-                {"hostname": "us1.example.com"}
-            ]
+            assert await client.get_servers() == [{"hostname": "us1.example.com"}]
 
             with pytest.raises(NordClientError, match="empty"):
                 await client.get_servers()
@@ -238,9 +234,7 @@ async def test_get_json_rejects_protocol_and_body_failures() -> None:
         web.Response(body=b"x" * 65),
         web.Response(
             body=b"{}",
-            headers={
-                "Content-Length": str(CREDENTIALS_RESPONSE_LIMIT + 1)
-            },
+            headers={"Content-Length": str(CREDENTIALS_RESPONSE_LIMIT + 1)},
         ),
     ]
 
