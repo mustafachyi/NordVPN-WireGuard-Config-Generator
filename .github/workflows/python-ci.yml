@@ -1,0 +1,124 @@
+name: Python CI
+
+on:
+  push:
+    paths:
+      - nordgen/**
+      - .github/workflows/python-ci.yml
+      - .github/workflows/publish-pypi.yml
+  pull_request:
+    paths:
+      - nordgen/**
+      - .github/workflows/python-ci.yml
+      - .github/workflows/publish-pypi.yml
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nordgen
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: nordgen/pyproject.toml
+
+      - name: Install project and development tools
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Verify formatting
+        run: python -m ruff format --check .
+
+      - name: Run static analysis
+        run: python -m ruff check .
+
+      - name: Run type checking
+        run: python -m mypy
+
+      - name: Run tests with coverage
+        run: python -m pytest
+
+      - name: Audit runtime dependencies
+        run: python -m pip_audit . --progress-spinner=off
+
+      - name: Build distributions
+        run: rm -rf build dist && python -m build
+
+      - name: Verify distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Smoke-test source distribution
+        run: |
+          python -m venv "$RUNNER_TEMP/nordgen-sdist-smoke"
+          "$RUNNER_TEMP/nordgen-sdist-smoke/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/nordgen-sdist-smoke/bin/python" -m pip install dist/*.tar.gz
+          "$RUNNER_TEMP/nordgen-sdist-smoke/bin/python" -m pip check
+          "$RUNNER_TEMP/nordgen-sdist-smoke/bin/nordgen" help
+
+      - name: Smoke-test built wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/nordgen-wheel-smoke"
+          "$RUNNER_TEMP/nordgen-wheel-smoke/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/nordgen-wheel-smoke/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/nordgen-wheel-smoke/bin/python" -m pip check
+          "$RUNNER_TEMP/nordgen-wheel-smoke/bin/nordgen" help
+
+  compatibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.11"
+          - os: ubuntu-latest
+            python: "3.12"
+          - os: ubuntu-latest
+            python: "3.13"
+          - os: ubuntu-latest
+            python: "3.14"
+          - os: windows-latest
+            python: "3.14"
+          - os: macos-latest
+            python: "3.14"
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: nordgen
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: nordgen/pyproject.toml
+
+      - name: Install project and test tools
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[test]"
+
+      - name: Run tests
+        run: python -m pytest --no-cov
+
+      - name: Smoke-test CLI
+        run: nordgen help

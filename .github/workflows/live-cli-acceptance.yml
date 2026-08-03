@@ -1,0 +1,163 @@
+name: Live CLI Acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+  GOFLAGS: -mod=readonly
+  LIVE_DOCKER_IMAGE: nordgen:live
+
+jobs:
+  acceptance:
+    name: acceptance
+    runs-on: ubuntu-24.04
+    environment: live-e2e
+
+    defaults:
+      run:
+        shell: bash --noprofile --norc -e -o pipefail {0}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Prepare isolated workspace
+        run: |
+          set -euo pipefail
+
+          live_root="$RUNNER_TEMP/nordgen-live-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+
+          rm -rf -- "$live_root"
+          install -d -m 0700 "$live_root"
+
+          printf 'LIVE_ROOT=%s\n' "$live_root" >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: nordgen/pyproject.toml
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: nordgen-go/go.mod
+          cache: true
+          cache-dependency-path: nordgen-go/go.sum
+
+      - name: Build and install Python wheel
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$LIVE_ROOT/dist"
+
+          python -m pip install --upgrade pip
+          python -m pip install "build>=1.5,<2"
+          python -m build --outdir "$LIVE_ROOT/dist" nordgen
+
+          python -m venv "$LIVE_ROOT/python-venv"
+          "$LIVE_ROOT/python-venv/bin/python" -m pip install --upgrade pip
+          "$LIVE_ROOT/python-venv/bin/python" -m pip install "$LIVE_ROOT"/dist/*.whl
+
+      - name: Build Go binary
+        working-directory: nordgen-go
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$LIVE_ROOT/bin"
+
+          go mod download
+          go mod verify
+
+          go build \
+            -buildvcs=false \
+            -trimpath \
+            -ldflags="-s -w -buildid=" \
+            -o "$LIVE_ROOT/bin/nordgen-go" \
+            ./cmd/nordgen
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+        with:
+          driver: docker-container
+          use: true
+          keep-state: false
+          cache-binary: true
+          cleanup: true
+
+      - name: Build Docker image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+        env:
+          DOCKER_BUILD_SUMMARY: "false"
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        with:
+          context: ./nordgen-go
+          file: ./nordgen-go/Dockerfile
+          load: true
+          push: false
+          pull: true
+          tags: ${{ env.LIVE_DOCKER_IMAGE }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run live CLI acceptance
+        env:
+          NORDVPN_ACCESS_TOKEN: ${{ secrets.NORDVPN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          python .github/scripts/live_cli_acceptance.py \
+            --python-command "$LIVE_ROOT/python-venv/bin/nordgen" \
+            --go-command "$LIVE_ROOT/bin/nordgen-go" \
+            --docker-image "$LIVE_DOCKER_IMAGE" \
+            --work-root "$LIVE_ROOT/acceptance"
+
+      - name: Clean up acceptance resources
+        if: ${{ always() }}
+        run: |
+          set -uo pipefail
+
+          cleanup_status=0
+
+          mapfile -t container_ids < <(
+            docker container ls \
+              --all \
+              --quiet \
+              --filter "label=nordgen.live-acceptance=${GITHUB_RUN_ID}"
+          )
+
+          if (( ${#container_ids[@]} > 0 )); then
+            docker container rm \
+              --force \
+              "${container_ids[@]}" \
+              >/dev/null || cleanup_status=1
+          fi
+
+          docker image rm \
+            --force \
+            "$LIVE_DOCKER_IMAGE" \
+            >/dev/null 2>&1 || true
+
+          case "${LIVE_ROOT:-}" in
+            "$RUNNER_TEMP"/nordgen-live-"$GITHUB_RUN_ID"-*)
+              rm -rf -- "$LIVE_ROOT" || cleanup_status=1
+              ;;
+            "")
+              echo "LIVE_ROOT was not initialized; no workspace removal required."
+              ;;
+            *)
+              echo "Refusing to remove unexpected LIVE_ROOT: $LIVE_ROOT" >&2
+              cleanup_status=1
+              ;;
+          esac
+
+          exit "$cleanup_status"

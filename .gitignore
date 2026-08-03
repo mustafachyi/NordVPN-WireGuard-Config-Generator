@@ -3,3 +3,6 @@
 .env.*.local
 dist
 node_modules
+nordvpn_configs_*/
+.nordgen-*/
+generated_configs/

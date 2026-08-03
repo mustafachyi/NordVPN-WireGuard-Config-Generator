@@ -1,110 +1,213 @@
-# API documentation
+# NordGen API
 
-Base URL: `https://[WORKER_DOMAIN]` or the local URL printed by Vite.
+The API is available under the deployed Worker domain.
 
-## Response format
+Production base URL:
 
-Successful endpoints return JSON unless otherwise noted. Errors return:
+```text
+https://nordgen.selfhoster.win
+```
+
+All application endpoints use the `/api` prefix.
+
+## Common Behavior
+
+Error responses use this JSON structure:
 
 ```json
 {
-  "error": "message"
+  "error": "Message"
 }
 ```
 
-Error responses use `Cache-Control: no-store`.
-
-## Get the server catalog
-
-`GET /api/servers`
-
-`HEAD /api/servers` returns the same status and headers without a response body.
-
-Optional request header:
+Responses with status codes of `400` or higher use:
 
 ```http
-If-None-Match: "etag"
+Cache-Control: no-store
 ```
 
-Responses:
+API responses include:
 
-- `200 OK`: server catalog
-- `304 Not Modified`: the supplied ETag matches the current catalog
-- `429 Too Many Requests`: rate limit exceeded
-- `503 Service Unavailable`: the server catalog is unavailable
+```http
+Referrer-Policy: strict-origin-when-cross-origin
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+```
 
-Successful responses are browser-cacheable for five minutes. Cloudflare Workers Cache stores them in a tiered edge cache and can serve cache hits without executing Worker code. KV remains the durable source of truth.
+Unknown API paths return:
 
-The response body is a tuple:
+| Status                      | Meaning                             |
+| --------------------------- | ----------------------------------- |
+| `404 Not Found`             | No API route matched                |
+| `500 Internal Server Error` | An unhandled request error occurred |
+
+## Cross-Origin Access
+
+| Route          | Allowed cross-origin methods | Allowed request headers |
+| -------------- | ---------------------------- | ----------------------- |
+| `/api/servers` | `GET`, `HEAD`, `OPTIONS`     | `If-None-Match`         |
+| `/api/key`     | `POST`, `OPTIONS`            | `Content-Type`          |
+| `/api/sync`    | None                         | None                    |
+
+The public routes allow any origin.
+
+CORS preflight responses may be cached for 86400 seconds.
+
+## Server Catalogue
+
+```http
+GET /api/servers
+```
+
+A bodyless request is also supported:
+
+```http
+HEAD /api/servers
+```
+
+Query parameters are not supported.
+
+### Conditional Requests
+
+Clients may send:
+
+```http
+If-None-Match: W/"sha256-..."
+```
+
+A matching ETag returns:
+
+```http
+304 Not Modified
+```
+
+The ETag comparison accepts weak and strong forms of the same value.
+
+### Successful Response
+
+```http
+200 OK
+Content-Type: application/json; charset=utf-8
+ETag: W/"sha256-..."
+Cache-Control: public, max-age=300, stale-while-revalidate=60, stale-if-error=86400
+Vary: Accept-Encoding
+```
+
+The response body contains two values:
 
 ```text
 [publicKeyCollection, countries]
 ```
 
-`publicKeyCollection` is a string containing concatenated 43-character Base64 public keys without their trailing `=` padding.
+`publicKeyCollection` contains concatenated 43-character Base64 public keys without their final `=` padding.
 
-Each country is:
+Each country has this structure:
 
 ```text
 [countryName, countryCode, cities]
 ```
 
-Each city starts with:
+Each city begins with:
 
 ```text
 [cityName, defaultKeyIndex, defaultGroupMask, packedServerData...]
 ```
 
-The remaining city values contain packed server-number and load data, IP deltas, and an optional exception array. The frontend decoder in `frontend/src/composables/useServers.js` is the reference implementation for this internal format.
+The packed values contain server identifiers, load values, IPv4 deltas, public-key references, group masks, and optional exceptions.
 
-Query parameters are rejected because the endpoint has no query semantics and Workers Cache includes the query string in its cache key.
+The reference decoder is:
 
-Cross-origin `GET`, `HEAD`, and `OPTIONS` requests are allowed.
-
-## Exchange an access token
-
-`POST /api/key`
-
-Request body:
-
-```json
-{
-  "token": "64-character hexadecimal string"
-}
+```text
+frontend/src/composables/useServers.js
 ```
 
-Success response:
+### Responses
 
-```json
-{
-  "key": "WireGuard private key"
-}
-```
+| Status                    | Meaning                          |
+| ------------------------- | -------------------------------- |
+| `200 OK`                  | Catalogue returned               |
+| `304 Not Modified`        | ETag matched                     |
+| `400 Bad Request`         | Query parameters were supplied   |
+| `429 Too Many Requests`   | Rate limit exceeded              |
+| `503 Service Unavailable` | No valid catalogue was available |
 
-Responses:
+### Caching
 
-- `200 OK`: key returned
-- `400 Bad Request`: invalid request body
-- `401 Unauthorized`: expired or rejected NordVPN token
-- `413 Content Too Large`: request body exceeds 1 KiB
-- `429 Too Many Requests`: rate limit exceeded
-- `503 Service Unavailable`: NordVPN credential service unavailable or invalid response
+The successful response is cacheable for five minutes.
 
-The Worker does not persist the access token or returned private key. Responses use `Cache-Control: no-store`.
+It also permits:
 
-Cross-origin `POST` and `OPTIONS` requests are allowed with the `Content-Type` request header.
+* 60 seconds of stale content during revalidation.
+* 86400 seconds of stale content when an error prevents a normal refresh.
 
-## Refresh the server cache
+A Cloudflare cache hit may be served before Worker route execution.
 
-`POST /api/sync`
+Requests that reach the route use KV as the catalogue source. The route refreshes from the configured upstream source only when KV does not contain a valid catalogue.
 
-Request header:
+The ETag is generated from a SHA-256 digest of the exact catalogue JSON.
+
+## Private-Key Exchange
 
 ```http
+POST /api/key
+Content-Type: application/json
+```
+
+### Request Body
+
+```json
+{
+  "token": "64-character hexadecimal token"
+}
+```
+
+The JSON object must contain only the `token` field.
+
+The request body limit is 1024 bytes.
+
+### Successful Response
+
+```http
+200 OK
+Cache-Control: no-store
+```
+
+```json
+{
+  "key": "Base64-encoded WireGuard private key"
+}
+```
+
+The returned value must represent exactly 32 decoded bytes.
+
+### Responses
+
+| Status                    | Meaning                                                     |
+| ------------------------- | ----------------------------------------------------------- |
+| `200 OK`                  | Private key returned                                        |
+| `400 Bad Request`         | JSON body or token was invalid                              |
+| `401 Unauthorized`        | The upstream credential service returned `401`              |
+| `413 Content Too Large`   | Request body exceeded 1024 bytes                            |
+| `429 Too Many Requests`   | Rate limit exceeded                                         |
+| `503 Service Unavailable` | The upstream request failed or returned an invalid response |
+
+The access token and returned key are not intentionally stored by application code.
+
+## Manual Synchronization
+
+```http
+POST /api/sync
 Authorization: Bearer <SYNC_TOKEN>
 ```
 
-Success response:
+The request has no required body.
+
+### Successful Response
+
+```http
+200 OK
+Cache-Control: no-store
+```
 
 ```json
 {
@@ -112,24 +215,62 @@ Success response:
 }
 ```
 
-Responses:
+### Responses
 
-- `200 OK`: refresh completed and the KV cache was updated or confirmed current
-- `401 Unauthorized`: missing or invalid synchronization secret
-- `502 Bad Gateway`: upstream refresh failed
+| Status             | Meaning                                       |
+| ------------------ | --------------------------------------------- |
+| `200 OK`           | Refresh completed or the source was unchanged |
+| `401 Unauthorized` | Synchronization token was missing or invalid  |
+| `502 Bad Gateway`  | Catalogue refresh failed                      |
 
-For local development, `SYNC_TOKEN` is loaded from `worker/.dev.vars`.
+The provided token and configured secret are hashed before a timing-safe comparison.
 
-For production, `SYNC_TOKEN` must be configured as a Cloudflare Worker secret.
+This route does not enable cross-origin access.
 
-## Rate limiting
+## Rate Limiting
 
-`POST /api/key` and uncached `GET /api/servers` executions use separate keys within the same Cloudflare Rate Limiting binding. Each key permits 100 Worker executions per 60 seconds for a client IP and Cloudflare location. Catalog cache hits are served before Worker execution and therefore do not reach the route limiter.
+The configured public limit is:
 
-Enforcement is approximate and local to each Cloudflare location.
+```text
+100 requests per 60 seconds
+```
+
+Separate scopes are used for:
+
+* Server catalogue requests that reach the Worker.
+* Private-key exchange requests.
+
+Each rate-limit key includes the connecting client IP address.
+
+When `cf-connecting-ip` is unavailable, the fallback key is `local`.
+
+Cloudflare cache hits can bypass Worker execution and therefore do not reach the route limiter.
 
 A rejected request includes:
 
 ```http
+429 Too Many Requests
 Retry-After: 60
 ```
+
+The `Retry-After` header is exposed through CORS on the public routes.
+
+## Limits
+
+| Operation                   | Limit      |
+| --------------------------- | ---------- |
+| Incoming key request body   | 1024 bytes |
+| Credential-service response | 16 KiB     |
+| Server-source response      | 8 MiB      |
+| Upstream request duration   | 15 seconds |
+
+## Catalogue Validation
+
+Before a source response is stored, the Worker checks that it:
+
+* Is valid JSON.
+* Contains a public-key collection in the expected format.
+* Contains a country array.
+* Uses the required country and city tuple structure.
+
+The browser applies additional validation while decoding individual records.

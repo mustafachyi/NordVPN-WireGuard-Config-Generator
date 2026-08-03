@@ -1,113 +1,219 @@
 import asyncio
 import os
-from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+ main
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Protocol
 
-from rich.progress import Progress, TaskID
-
-from .client import NordClient
-from .latency import measure_latencies, pick_lowest_latency
-from .models import GenerationStats, Server, UserPreferences
-from .server_parser import parse_servers
-from .ui import ConsoleManager
-
-_PATH_SANITIZE_TABLE: dict[int, int | None] = {ord(c): None for c in '<>:"/\\|?*\0'}
-_PATH_SANITIZE_TABLE[ord(" ")] = ord("_")
-
-_FILENAME_MAX_LENGTH = 15
-# How many load/distance candidates per location to probe when measuring latency
-_LATENCY_CANDIDATES_PER_LOCATION = 5
+from .constants import GROUP_DEDICATED_ID, TYPE_GROUPS
+from .models import Coordinates, GenerationStats, Server, UserPreferences
+from .permissions import secure_output_root
+from .server_parser main
 
 
 @dataclass(slots=True, frozen=True)
-class _ConfigWriteJob:
-    absolute_path: str
-    content: str
+class FileJob:
+    path: Path
+    content: bytes
+
+
+class FilePathAllocator:
+    def __init__(self) -> None:
+        self._used: set[Path] = set()
+        self._next_suffix: dict[Path, int] = {}
+
+    def allocate(
+        self,
+        directory: Path,
+        name_root: str,
+    ) -> Path:
+        base = directory / name_root
+        suffix = self._next_suffix.get(base, 0)
+
+        while True:
+            file_name = f"{name_root}.conf" if suffix == 0 else f"{name_root}_{suffix}.conf"
+            candidate = directory / file_name
+            suffix += 1
+
+            if candidate in self._used:
+                continue
+
+            self._used.add(candidate)
+            self._next_suffix[base] = suffix
+            return candidate
 
 
 class Generator:
-    def __init__(self, client: NordClient, ui: ConsoleManager) -> None:
+    def __init__(
+        self,
+        client: ServerClient,
+        ui: ConsoleManager,
+        *,
+        working_directory: Path | None = None,
+        time_ns: Callable[[], int] = time.time_ns,
+    ) -> None:
         self.client = client
         self.ui = ui
         self.stats = GenerationStats()
-        self.output_directory: str = ""
+        self.working_directory = working_directory or Path.cwd()
+        self._time_ns = time_ns
 
     async def process(
-        self, private_key: str, preferences: UserPreferences
-    ) -> str | None:
-        self.output_directory = f"nordvpn_configs_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
-        with self.ui.status("Fetching data..."):
-            (latitude, longitude), raw_servers = await asyncio.gather(
-                self.client.get_geo(),
-                self.client.get_servers(),
-            )
-
-        if not raw_servers:
-            self.ui.fail("Failed to fetch server data")
-            return None
-        self.ui.success("Data fetched")
-
-        with self.ui.status("Processing dataset..."):
-            required_groups = set(preferences.groups) if preferences.groups else None
-
-            all_parsed = parse_servers(
-                raw_servers,
-                latitude,
-                longitude,
-                required_groups=required_groups,
-                exclude_dedicated=preferences.exclude_dedicated,
-            )
-
-            unique_servers = list({s.name: s for s in all_parsed}.values())
-
-            if not unique_servers:
-                self.ui.fail("No servers found matching the specified filters")
-                return None
-
-            unique_servers.sort(key=lambda s: (s.load, s.distance))
-
-            self.stats.total = len(unique_servers)
-
-            # Group by location so we can optionally probe several candidates
-            location_buckets: dict[tuple[str, str, str], list[Server]] = defaultdict(list)
-            for s in unique_servers:
-                location_buckets[(s.combo, s.country, s.city)].append(s)
-
-            best_map: dict[tuple[str, str, str], Server] = {
-                key: servers[0] for key, servers in location_buckets.items()
-            }
-            self.stats.best = len(best_map)
-
-        if preferences.measure_latency:
-            best_map = await self._refine_best_by_latency(location_buckets)
-
-        with self.ui.status("Building configuration jobs..."):
-            standard_jobs = self._build_jobs(
-                unique_servers, "configs", private_key, preferences
-            )
-            best_jobs = self._build_jobs(
-                list(best_map.values()), "best_configs", private_key, preferences
-            )
+        self,
+        private_key: str,
+        preferences: UserPreferences,
+    ) -> Path:
+        self.stats = GenerationStats()
+        preferences.validate()
+        _validate_groups(preferences)
 
         try:
-            all_jobs = standard_jobs + best_jobs
-            await asyncio.to_thread(
-                self._materialize_directories, all_jobs
+            validate_key(private_key)
+        except WireGuardValueError as error:
+            raise GenerationError(f"invalid private key: {error}") from error
+
+        with self.ui.status("Fetching data..."):
+            geo_task: asyncio.Task[Coordinates] = asyncio.create_task(self.client.get_geo())
+            servers_task: asyncio.Task[list[object]] = asyncio.create_task(
+                self.client.get_servers()
             )
 
-            with self.ui.progress() as progress:
-                task = progress.add_task("Writing all configs", total=len(all_jobs))
-                await asyncio.to_thread(
-                    self._write_jobs_parallel, all_jobs, progress, task
+            try:
+                raw_servers = await servers_task
+            except BaseException:
+                geo_task.cancel()
+                await asyncio.gather(
+                    geo_task,
+                    return_exceptions=True,
                 )
-        except OSError as err:
-            self.ui.fail(f"Filesystem error: {err}")
-            return None
+                raise
 
-        return self.output_directory
+            if not raw_servers:
+                geo_task.cancel()
+                await asyncio.gather(
+                    geo_task,
+                    return_exceptions=True,
+                )
+                raise GenerationError("server data was empty")
+
+            try:
+                coordinates = await geo_task
+            except Exception:
+                coordinates = None
+
+        self.ui.success("Fetched server data")
+
+ main
+
+        try:
+            with self.ui.status("Processing dataset..."):
+                parsed = parse_servers(
+                    raw_servers,
+                    observer,
+                    preferences.groups,
+                    preferences.exclude_dedicated,
+                    preferences.use_ip,
+                )
+                parsed.sort(key=_server_sort_key)
+
+                unique_servers: list[Server] = []
+                seen_hostnames: set[str] = set()
+
+                for server in parsed:
+                    if server.hostname in seen_hostnames:
+                        continue
+
+                    seen_hostnames.add(server.hostname)
+                    unique_servers.append(server)
+
+                if not unique_servers:
+                    raise GenerationError("no servers matched filters")
+
+                best_servers: list[Server] = []
+                seen_best: set[tuple[str, str, str]] = set()
+
+                for server in unique_servers:
+                    key = (
+                        server.combo,
+                        server.country,
+                        server.city,
+                    )
+                    if key in seen_best:
+                        continue
+
+                    seen_best.add(key)
+                    best_servers.append(server)
+
+                self.stats = GenerationStats(
+                    total=len(unique_servers),
+                    best=len(best_servers),
+                )
+                output_name = _output_directory_name(self._time_ns())
+
+                try:
+                    temporary_root = Path(
+                        tempfile.mkdtemp(
+                            prefix=".nordgen-",
+                            dir=self.working_directory,
+                        )
+                    )
+                except OSError as error:
+                    raise GenerationError(f"create temporary output directory: {error}") from error
+
+                secure_output_root(temporary_root)
+
+                jobs = self._build_jobs(
+                    temporary_root,
+                    unique_servers,
+                    "configs",
+                    private_key,
+                    preferences,
+                )
+                jobs.extend(
+                    self._build_jobs(
+                        temporary_root,
+                        best_servers,
+                        "best_configs",
+                        private_key,
+                        preferences,
+                    )
+                )
+
+            self.ui.success("Dataset processed")
+
+            await self._write_jobs(
+                temporary_root,
+                jobs,
+            )
+
+            final_path = self.working_directory / output_name
+
+            try:
+                final_path.lstat()
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                raise GenerationError(f"inspect output destination: {error}") from error
+            else:
+                raise GenerationError(
+                    f"commit output directory: destination already exists: {final_path}"
+                )
+
+            try:
+                temporary_root.rename(final_path)
+            except OSError as error:
+                raise GenerationError(f"commit output directory: {error}") from error
+
+            committed = True
+            self.ui.success("Configuration files written")
+            return final_path
+        finally:
+            if temporary_root is not None and not committed:
+                shutil.rmtree(
+                    temporary_root,
+                    ignore_errors=True,
+                )
 
     async def _refine_best_by_latency(
         self,
@@ -146,67 +252,51 @@ class Generator:
 
     def _build_jobs(
         self,
+        root: Path,
         servers: list[Server],
         subdirectory: str,
         private_key: str,
         preferences: UserPreferences,
-    ) -> list[_ConfigWriteJob]:
-        jobs: list[_ConfigWriteJob] = []
-        counts: dict[str, int] = {}
-        base_dir = self.output_directory
-
-        interface_block = f"[Interface]\nPrivateKey = {private_key}\nAddress = 10.5.0.2/16\nDNS = {preferences.dns}\n\n[Peer]\n"
-        keepalive_block = f"\nPersistentKeepalive = {preferences.keepalive}"
+    ) -> list[FileJob]:
+        allocator = FilePathAllocator()
+        jobs: list[FileJob] = []
 
         for server in servers:
-            country_seg = server.country.lower().translate(_PATH_SANITIZE_TABLE)
-            city_seg = server.city.lower().translate(_PATH_SANITIZE_TABLE)
-            fname_root = server.name.lower().translate(_PATH_SANITIZE_TABLE)[:_FILENAME_MAX_LENGTH]
-
-            if not fname_root:
-                fname_root = "unknown"
-
-            directory = os.path.join(
-                base_dir, subdirectory, server.combo, country_seg, city_seg
+ main
             )
-            candidate = os.path.join(directory, f"{fname_root}.conf")
-
-            count = counts.get(candidate, 0)
-            counts[candidate] = count + 1
-            final_path = candidate if count == 0 else os.path.join(directory, f"{fname_root}_{count}.conf")
-
+            name_root = canonical_path_segment(
+                server.name,
+                FILE_NAME_MAX_BYTES,
+            )
+            directory = root / subdirectory / combo / country / city
+            path = allocator.allocate(
+                directory,
+                name_root,
+            )
             endpoint = server.station if preferences.use_ip else server.hostname
-            content = f"{interface_block}PublicKey = {server.public_key}\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = {endpoint}:51820{keepalive_block}"
-            jobs.append(_ConfigWriteJob(absolute_path=final_path, content=content))
+
+            try:
+                content = build_config(
+                    private_key,
+                    server.public_key,
+                    endpoint,
+                    preferences.dns,
+                    preferences.keepalive,
+                )
+            except WireGuardValueError as error:
+                raise GenerationError(f"server {server.hostname}: {error}") from error
+
+            jobs.append(FileJob(path, content))
+
         return jobs
 
-    @staticmethod
-    def _materialize_directories(jobs: list[_ConfigWriteJob]) -> None:
-        unique_dirs = {os.path.dirname(job.absolute_path) for job in jobs}
-        for d in unique_dirs:
-            os.makedirs(d, exist_ok=True)
-
-    @staticmethod
-    def _write_jobs_chunk(jobs: list[_ConfigWriteJob], progress: Progress, task_id: TaskID) -> None:
-        for job in jobs:
-            with open(job.absolute_path, "w", encoding="utf-8") as f:
-                f.write(job.content)
-        progress.advance(task_id, len(jobs))
-
-    @classmethod
-    def _write_jobs_parallel(
-        cls, jobs: list[_ConfigWriteJob], progress: Progress, task_id: TaskID
+    async def _write_jobs(
+        self,
+        root: Path,
+        jobs: list[FileJob],
     ) -> None:
-        chunk_size = 50
-        cpu_count = os.cpu_count() or 1
-        max_workers = min(64, max(4, cpu_count * 4))
 
-        chunks = [jobs[i : i + chunk_size] for i in range(0, len(jobs), chunk_size)]
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(cls._write_jobs_chunk, chunk, progress, task_id)
-                for chunk in chunks
-            ]
-            for future in futures:
-                future.result()
+              
+                            
+              
+ main

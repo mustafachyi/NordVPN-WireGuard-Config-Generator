@@ -1,18 +1,28 @@
 package models
 
+import (
+	"fmt"
+	"net/netip"
+	"strings"
+)
+
+const MaxKeepalive = 65535
+
+type Coordinates struct {
+	Latitude  float64
+	Longitude float64
+}
+
 type Server struct {
-	Name        string
-	Hostname    string
-	Station     string
-	Load        int
-	Country     string
-	CountryCode string
-	City        string
-	Latitude    float64
-	Longitude   float64
-	PublicKey   string
-	Distance    float64
-	Combo       string
+	Name      string
+	Hostname  string
+	Station   string
+	Load      int
+	Country   string
+	City      string
+	PublicKey string
+	Distance  float64
+	Combo     string
 }
 
 type UserPreferences struct {
@@ -21,6 +31,16 @@ type UserPreferences struct {
 	Keepalive        int
 	Groups           []string
 	ExcludeDedicated bool
+}
+
+func (p UserPreferences) Validate() error {
+	if _, err := netip.ParseAddr(strings.TrimSpace(p.DNS)); err != nil {
+		return fmt.Errorf("DNS must be a valid IPv4 or IPv6 address")
+	}
+	if p.Keepalive < 0 || p.Keepalive > MaxKeepalive {
+		return fmt.Errorf("keepalive must be between 0 and %d seconds", MaxKeepalive)
+	}
+	return nil
 }
 
 type GenerationStats struct {
@@ -45,7 +65,6 @@ type RawLocation struct {
 
 type RawCountry struct {
 	Name string  `json:"name"`
-	Code string  `json:"code"`
 	City RawCity `json:"city"`
 }
 
