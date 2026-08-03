@@ -141,6 +141,8 @@ The Web application sends the access token to its Worker when requesting a priva
 
 The project does not claim to securely erase credentials from process or browser memory.
 
+NordGen is an independent project and is not affiliated with, endorsed by, or supported by NordVPN or Nord Security.
+
 ## Support
 
 If this project saves you time, there are several ways to support it.

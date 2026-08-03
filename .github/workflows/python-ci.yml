@@ -64,8 +64,21 @@ jobs:
       - name: Verify distribution metadata
         run: python -m twine check dist/*
 
+      - name: Smoke-test source distribution
+        run: |
+          python -m venv "$RUNNER_TEMP/nordgen-sdist-smoke"
+          "$RUNNER_TEMP/nordgen-sdist-smoke/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/nordgen-sdist-smoke/bin/python" -m pip install dist/*.tar.gz
+          "$RUNNER_TEMP/nordgen-sdist-smoke/bin/python" -m pip check
+          "$RUNNER_TEMP/nordgen-sdist-smoke/bin/nordgen" help
+
       - name: Smoke-test built wheel
-        run: python -m pip install --force-reinstall --no-deps dist/*.whl && nordgen help
+        run: |
+          python -m venv "$RUNNER_TEMP/nordgen-wheel-smoke"
+          "$RUNNER_TEMP/nordgen-wheel-smoke/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/nordgen-wheel-smoke/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/nordgen-wheel-smoke/bin/python" -m pip check
+          "$RUNNER_TEMP/nordgen-wheel-smoke/bin/nordgen" help
 
   compatibility:
     strategy:

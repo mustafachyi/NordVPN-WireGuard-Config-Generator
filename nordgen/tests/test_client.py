@@ -2,7 +2,10 @@ import asyncio
 import base64
 import json
 import socket
-from collections.abc import AsyncIterator, Callable
+from collections.abc import (
+    AsyncIterator,
+    Callable,
+)
 from contextlib import asynccontextmanager
 
 import aiohttp
@@ -21,20 +24,33 @@ from nord_config_generator.client import (
 
 @asynccontextmanager
 async def serve(
-    handler: Callable[[web.Request], web.StreamResponse],
+    handler: Callable[
+        [web.Request],
+        web.StreamResponse,
+    ],
 ) -> AsyncIterator[str]:
     application = web.Application()
-    application.router.add_route("*", "/{tail:.*}", handler)
+    application.router.add_route(
+        "*",
+        "/{tail:.*}",
+        handler,
+    )
 
     runner = web.AppRunner(application)
     await runner.setup()
 
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener = socket.socket(
+        socket.AF_INET,
+        socket.SOCK_STREAM,
+    )
     listener.bind(("127.0.0.1", 0))
     listener.listen()
 
     port = listener.getsockname()[1]
-    site = web.SockSite(runner, listener)
+    site = web.SockSite(
+        runner,
+        listener,
+    )
     await site.start()
 
     try:
@@ -80,10 +96,14 @@ async def test_injected_session_is_not_closed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_key_sends_headers_and_validates_response(key_factory) -> None:
+async def test_get_key_sends_headers_and_validates_response(
+    key_factory,
+) -> None:
     key = key_factory(7)
 
-    async def handler(request: web.Request) -> web.StreamResponse:
+    async def handler(
+        request: web.Request,
+    ) -> web.StreamResponse:
         assert request.path == "/credentials"
         assert request.headers["Accept"] == "application/json"
         assert request.headers["User-Agent"] == USER_AGENT
@@ -91,7 +111,7 @@ async def test_get_key_sends_headers_and_validates_response(key_factory) -> None
         expected = base64.b64encode(("token:" + "a" * 64).encode()).decode()
         assert request.headers["Authorization"] == f"Basic {expected}"
 
-        return web.json_response({"nordlynx_private_key": f"  {key}  "})
+        return web.json_response({"nordlynx_private_key": (f"  {key}  ")})
 
     async with serve(handler) as root:
         async with NordClient(endpoints=endpoints(root)) as client:
@@ -99,17 +119,45 @@ async def test_get_key_sends_headers_and_validates_response(key_factory) -> None
 
 
 @pytest.mark.asyncio
-async def test_get_key_rejects_unauthorized_and_invalid_payloads(
+async def test_get_key_does_not_follow_redirects(
     key_factory,
 ) -> None:
+    redirected = False
+
+    async def handler(
+        request: web.Request,
+    ) -> web.StreamResponse:
+        nonlocal redirected
+
+        if request.path == "/credentials":
+            raise web.HTTPFound(location="/redirected")
+
+        redirected = True
+        return web.json_response({"nordlynx_private_key": (key_factory(7))})
+
+    async with serve(handler) as root:
+        async with NordClient(endpoints=endpoints(root)) as client:
+            with pytest.raises(
+                NordClientError,
+                match="HTTP status 302",
+            ):
+                await client.get_key("a" * 64)
+
+    assert not redirected
+
+
+@pytest.mark.asyncio
+async def test_get_key_rejects_unauthorized_and_invalid_payloads() -> None:
     responses = [
         web.Response(status=401),
         web.json_response([]),
         web.json_response({}),
-        web.json_response({"nordlynx_private_key": "invalid"}),
+        web.json_response({"nordlynx_private_key": ("invalid")}),
     ]
 
-    async def handler(request: web.Request) -> web.StreamResponse:
+    async def handler(
+        request: web.Request,
+    ) -> web.StreamResponse:
         return responses.pop(0)
 
     async with serve(handler) as root:
@@ -139,18 +187,32 @@ async def test_get_key_rejects_unauthorized_and_invalid_payloads(
 @pytest.mark.asyncio
 async def test_get_geo_accepts_valid_and_rejects_invalid_coordinates() -> None:
     payloads: list[object] = [
-        {"latitude": 36.75, "longitude": 3.06},
+        {
+            "latitude": 36.75,
+            "longitude": 3.06,
+        },
         [],
         {},
-        {"latitude": True, "longitude": 0},
-        {"latitude": 91, "longitude": 0},
-        {"latitude": float("inf"), "longitude": 0},
+        {
+            "latitude": True,
+            "longitude": 0,
+        },
+        {
+            "latitude": 91,
+            "longitude": 0,
+        },
+        {
+            "latitude": float("inf"),
+            "longitude": 0,
+        },
     ]
 
-    async def handler(request: web.Request) -> web.StreamResponse:
+    async def handler(
+        request: web.Request,
+    ) -> web.StreamResponse:
         return web.Response(
             body=json.dumps(payloads.pop(0)),
-            content_type="application/json",
+            content_type=("application/json"),
         )
 
     async with serve(handler) as root:
@@ -163,7 +225,10 @@ async def test_get_geo_accepts_valid_and_rejects_invalid_coordinates() -> None:
             for _ in range(5):
                 with pytest.raises(
                     NordClientError,
-                    match=r"invalid coordinates|JSON object",
+                    match=(
+                        r"invalid coordinates"
+                        r"|JSON object"
+                    ),
                 ):
                     await client.get_geo()
 
@@ -171,19 +236,24 @@ async def test_get_geo_accepts_valid_and_rejects_invalid_coordinates() -> None:
 @pytest.mark.asyncio
 async def test_get_servers_accepts_nonempty_array_and_rejects_other_payloads() -> None:
     payloads: list[object] = [
-        [{"hostname": "us1.example.com"}],
+        [{"hostname": ("us1.example.com")}],
         [],
         {},
     ]
 
-    async def handler(request: web.Request) -> web.StreamResponse:
+    async def handler(
+        request: web.Request,
+    ) -> web.StreamResponse:
         return web.json_response(payloads.pop(0))
 
     async with serve(handler) as root:
         async with NordClient(endpoints=endpoints(root)) as client:
-            assert await client.get_servers() == [{"hostname": "us1.example.com"}]
+            assert await client.get_servers() == [{"hostname": ("us1.example.com")}]
 
-            with pytest.raises(NordClientError, match="empty"):
+            with pytest.raises(
+                NordClientError,
+                match="empty",
+            ):
                 await client.get_servers()
 
             with pytest.raises(
@@ -197,17 +267,19 @@ async def test_get_servers_accepts_nonempty_array_and_rejects_other_payloads() -
 async def test_get_json_reads_fragmented_response_to_eof() -> None:
     payload = [
         {
-            "hostname": "us1.example.com",
-            "description": "x" * 32768,
+            "hostname": ("us1.example.com"),
+            "description": ("x" * 32768),
         }
     ]
     encoded = json.dumps(payload).encode()
     split = len(encoded) // 2
 
-    async def handler(request: web.Request) -> web.StreamResponse:
+    async def handler(
+        request: web.Request,
+    ) -> web.StreamResponse:
         response = web.StreamResponse(
             status=200,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": ("application/json")},
         )
         response.enable_chunked_encoding()
 
@@ -238,7 +310,9 @@ async def test_get_json_rejects_protocol_and_body_failures() -> None:
         ),
     ]
 
-    async def handler(request: web.Request) -> web.StreamResponse:
+    async def handler(
+        request: web.Request,
+    ) -> web.StreamResponse:
         return responses.pop(0)
 
     async with serve(handler) as root:
@@ -249,7 +323,10 @@ async def test_get_json_rejects_protocol_and_body_failures() -> None:
                 (64, "decode"),
                 (64, "decode"),
                 (64, "exceeded"),
-                (CREDENTIALS_RESPONSE_LIMIT, "exceeded"),
+                (
+                    CREDENTIALS_RESPONSE_LIMIT,
+                    "exceeded",
+                ),
             ]:
                 with pytest.raises(
                     NordClientError,
@@ -297,7 +374,9 @@ async def test_get_json_honors_cancellation() -> None:
     started = asyncio.Event()
     release = asyncio.Event()
 
-    async def handler(request: web.Request) -> web.StreamResponse:
+    async def handler(
+        request: web.Request,
+    ) -> web.StreamResponse:
         started.set()
         await release.wait()
         return web.json_response({})
