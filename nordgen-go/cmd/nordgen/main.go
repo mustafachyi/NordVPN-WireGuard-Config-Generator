@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -47,10 +48,36 @@ type generateOptions struct {
 }
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	stopInputWatcher := closeInputOnCancellation(ctx, os.Stdin)
+
 	exitCode := run(ctx, os.Args[1:], os.Stdin, os.Stdout)
-	stop()
+
+	stopInputWatcher()
+	stopSignals()
 	os.Exit(exitCode)
+}
+
+func closeInputOnCancellation(ctx context.Context, input io.Closer) func() {
+	stop := make(chan struct{})
+	exited := make(chan struct{})
+
+	go func() {
+		defer close(exited)
+		select {
+		case <-ctx.Done():
+			_ = input.Close()
+		case <-stop:
+		}
+	}()
+
+	var stopOnce sync.Once
+	return func() {
+		stopOnce.Do(func() {
+			close(stop)
+			<-exited
+		})
+	}
 }
 
 func run(ctx context.Context, args []string, input io.Reader, output io.Writer) int {
@@ -296,6 +323,9 @@ func resolvePrivateKey(ctx context.Context, consoleManager *ui.ConsoleManager, n
 	if strings.TrimSpace(token) == "" {
 		prompted, err := consoleManager.PromptSecret("NordVPN access token")
 		if err != nil {
+			if contextErr := ctx.Err(); contextErr != nil {
+				return "", contextErr
+			}
 			return "", err
 		}
 		token = prompted
@@ -344,6 +374,9 @@ func runGetKey(ctx context.Context, consoleManager *ui.ConsoleManager, nordClien
 	consoleManager.ShowKey(key)
 	if interactive {
 		consoleManager.Wait()
+		if err := ctx.Err(); err != nil {
+			return handleRuntimeError(consoleManager, err, false)
+		}
 	}
 	return successfulExit(consoleManager)
 }
@@ -388,6 +421,9 @@ func runGenerate(ctx context.Context, consoleManager *ui.ConsoleManager, nordCli
 	consoleManager.Summary(outputPath, configurationGenerator.Stats, time.Since(startedAt).Seconds())
 	if interactive {
 		consoleManager.Wait()
+		if err := ctx.Err(); err != nil {
+			return handleRuntimeError(consoleManager, err, false)
+		}
 	}
 	return successfulExit(consoleManager)
 }

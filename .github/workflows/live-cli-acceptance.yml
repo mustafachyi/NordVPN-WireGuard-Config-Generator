@@ -6,14 +6,26 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: live-cli-acceptance
+  cancel-in-progress: false
+
 env:
   GOTOOLCHAIN: local
   GOFLAGS: -mod=readonly
   LIVE_DOCKER_IMAGE: nordgen:live
 
 jobs:
+  validate-ref:
+    name: validate-ref
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require main branch
+        run: test "$GITHUB_REF" = "refs/heads/main"
+
   acceptance:
     name: acceptance
+    needs: validate-ref
     runs-on: ubuntu-24.04
     environment: live-e2e
 

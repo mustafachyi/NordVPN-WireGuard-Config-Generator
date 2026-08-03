@@ -8,9 +8,27 @@ import (
 	"strings"
 )
 
-const endpointPort = 51820
+const (
+	endpointPort              = 51820
+	wireGuardKeyEncodedLength = 44
+)
 
 func ValidateKey(value string) error {
+	if len(value) != wireGuardKeyEncodedLength || value[wireGuardKeyEncodedLength-1] != '=' {
+		return fmt.Errorf("key must be a base64-encoded 32-byte value")
+	}
+
+	for index := 0; index < wireGuardKeyEncodedLength-1; index++ {
+		character := value[index]
+		if (character >= 'A' && character <= 'Z') ||
+			(character >= 'a' && character <= 'z') ||
+			(character >= '0' && character <= '9') ||
+			character == '+' || character == '/' {
+			continue
+		}
+		return fmt.Errorf("key must be a base64-encoded 32-byte value")
+	}
+
 	decoded, err := base64.StdEncoding.DecodeString(value)
 	if err != nil || len(decoded) != 32 {
 		return fmt.Errorf("key must be a base64-encoded 32-byte value")
@@ -40,9 +58,12 @@ func ValidateEndpoint(value string) error {
 		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
 			return fmt.Errorf("endpoint hostname is invalid")
 		}
-		for i := 0; i < len(label); i++ {
-			c := label[i]
-			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' {
+		for index := 0; index < len(label); index++ {
+			character := label[index]
+			if (character >= 'a' && character <= 'z') ||
+				(character >= 'A' && character <= 'Z') ||
+				(character >= '0' && character <= '9') ||
+				character == '-' {
 				continue
 			}
 			return fmt.Errorf("endpoint hostname is invalid")

@@ -1,0 +1,437 @@
+{
+  "observer": null,
+  "required_groups": [
+    "legacy_standard"
+  ],
+  "exclude_dedicated": true,
+  "use_ip": true,
+  "records": [
+    {
+      "hostname": "us2.example.com",
+      "station": "192.0.2.2",
+      "load": 20,
+      "locations": [
+        {
+          "latitude": 2,
+          "longitude": 2,
+          "country": {
+            "name": "Country",
+            "city": {
+              "name": "City"
+            }
+          }
+        }
+      ],
+      "groups": [
+        {
+          "identifier": "legacy_standard"
+        },
+        {
+          "identifier": "legacy_p2p"
+        }
+      ],
+      "technologies": [
+        {
+          "metadata": [
+            {
+              "name": "public_key",
+              "value": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hostname": "  US1.EXAMPLE.COM  ",
+      "station": "192.0.2.1",
+      "load": 10,
+      "locations": [
+        {
+          "latitude": 1,
+          "longitude": 1,
+          "country": {
+            "name": "Country",
+            "city": {
+              "name": "City"
+            }
+          }
+        }
+      ],
+      "groups": [
+        {
+          "identifier": "legacy_standard"
+        },
+        {
+          "identifier": "legacy_p2p"
+        },
+        {
+          "identifier": "legacy_standard"
+        }
+      ],
+      "technologies": [
+        {
+          "metadata": [
+            {
+              "name": "public_key",
+              "value": "  AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=  "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hostname": "us1.example.com",
+      "station": "192.0.2.10",
+      "load": 50,
+      "locations": [
+        {
+          "latitude": 1,
+          "longitude": 1,
+          "country": {
+            "name": "Country",
+            "city": {
+              "name": "City"
+            }
+          }
+        }
+      ],
+      "groups": [
+        {
+          "identifier": "legacy_standard"
+        }
+      ],
+      "technologies": [
+        {
+          "metadata": [
+            {
+              "name": "public_key",
+              "value": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM="
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hostname": "dedicated.example.com",
+      "station": "192.0.2.30",
+      "load": 5,
+      "locations": [
+        {
+          "latitude": 3,
+          "longitude": 3,
+          "country": {
+            "name": "Country",
+            "city": {
+              "name": "City"
+            }
+          }
+        }
+      ],
+      "groups": [
+        {
+          "identifier": "legacy_standard"
+        },
+        {
+          "identifier": "legacy_dedicated_ip"
+        }
+      ],
+      "technologies": [
+        {
+          "metadata": [
+            {
+              "name": "public_key",
+              "value": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ="
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hostname": "missing-load.example.com",
+      "station": "192.0.2.40",
+      "locations": [
+        {
+          "latitude": 4,
+          "longitude": 4,
+          "country": {
+            "name": "Country",
+            "city": {
+              "name": "City"
+            }
+          }
+        }
+      ],
+      "groups": [
+        {
+          "identifier": "legacy_standard"
+        }
+      ],
+      "technologies": [
+        {
+          "metadata": [
+            {
+              "name": "public_key",
+              "value": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU="
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hostname": "null-coordinate.example.com",
+      "station": "192.0.2.41",
+      "load": 12,
+      "locations": [
+        {
+          "latitude": null,
+          "longitude": 4,
+          "country": {
+            "name": "Country",
+            "city": {
+              "name": "City"
+            }
+          }
+        }
+      ],
+      "groups": [
+        {
+          "identifier": "legacy_standard"
+        }
+      ],
+      "technologies": [
+        {
+          "metadata": [
+            {
+              "name": "public_key",
+              "value": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU="
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hostname": "wrong-load-type.example.com",
+      "station": "192.0.2.42",
+      "load": "13",
+      "locations": [
+        {
+          "latitude": 4,
+          "longitude": 4,
+          "country": {
+            "name": "Country",
+            "city": {
+              "name": "City"
+            }
+          }
+        }
+      ],
+      "groups": [
+        {
+          "identifier": "legacy_standard"
+        }
+      ],
+      "technologies": [
+        {
+          "metadata": [
+            {
+              "name": "public_key",
+              "value": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU="
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hostname": "invalid-station.example.com",
+      "station": "not-an-ip",
+      "load": 14,
+      "locations": [
+        {
+          "latitude": 4,
+          "longitude": 4,
+          "country": {
+            "name": "Country",
+            "city": {
+              "name": "City"
+            }
+          }
+        }
+      ],
+      "groups": [
+        {
+          "identifier": "legacy_standard"
+        }
+      ],
+      "technologies": [
+        {
+          "metadata": [
+            {
+              "name": "public_key",
+              "value": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU="
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hostname": "us3.example.com",
+      "station": "192.0.2.3",
+      "load": 15,
+      "locations": [
+        {
+          "latitude": 3,
+          "longitude": 3,
+          "country": {
+            "name": "Country",
+            "city": {
+              "name": "City"
+            }
+          }
+        },
+        "malformed-unused-location"
+      ],
+      "groups": [
+        {
+          "identifier": "legacy_standard"
+        }
+      ],
+      "technologies": [
+        {
+          "metadata": [
+            {
+              "name": "public_key",
+              "value": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM="
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hostname": "us4.example.com",
+      "station": "192.0.2.4",
+      "load": 25,
+      "locations": [
+        {
+          "latitude": 4,
+          "longitude": 4,
+          "country": {
+            "name": "Country",
+            "city": {
+              "name": "City"
+            }
+          }
+        }
+      ],
+      "groups": [
+        "malformed-group",
+        {
+          "identifier": "unknown"
+        },
+        {
+          "identifier": "legacy_standard"
+        }
+      ],
+      "technologies": [
+        {
+          "metadata": [
+            {
+              "name": "public_key",
+              "value": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ="
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hostname": "us5.example.com",
+      "station": "192.0.2.5",
+      "load": 30,
+      "locations": [
+        {
+          "latitude": 5,
+          "longitude": 5,
+          "country": {
+            "name": "Country",
+            "city": {
+              "name": "City"
+            }
+          }
+        }
+      ],
+      "groups": [
+        {
+          "identifier": "legacy_standard"
+        }
+      ],
+      "technologies": [
+        "malformed-technology",
+        {
+          "metadata": [
+            null,
+            {
+              "name": "other",
+              "value": 1
+            },
+            {
+              "name": "public_key",
+              "value": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU="
+            }
+          ]
+        }
+      ]
+    },
+    null
+  ],
+  "expected": [
+    {
+      "name": "us1",
+      "hostname": "us1.example.com",
+      "station": "192.0.2.1",
+      "load": 10,
+      "country": "Country",
+      "city": "City",
+      "public_key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+      "combo": "p2p_standard"
+    },
+    {
+      "name": "us3",
+      "hostname": "us3.example.com",
+      "station": "192.0.2.3",
+      "load": 15,
+      "country": "Country",
+      "city": "City",
+      "public_key": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=",
+      "combo": "standard"
+    },
+    {
+      "name": "us2",
+      "hostname": "us2.example.com",
+      "station": "192.0.2.2",
+      "load": 20,
+      "country": "Country",
+      "city": "City",
+      "public_key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
+      "combo": "p2p_standard"
+    },
+    {
+      "name": "us4",
+      "hostname": "us4.example.com",
+      "station": "192.0.2.4",
+      "load": 25,
+      "country": "Country",
+      "city": "City",
+      "public_key": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=",
+      "combo": "standard"
+    },
+    {
+      "name": "us5",
+      "hostname": "us5.example.com",
+      "station": "192.0.2.5",
+      "load": 30,
+      "country": "Country",
+      "city": "City",
+      "public_key": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU=",
+      "combo": "standard"
+    }
+  ]
+}

@@ -16,9 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 TOKEN_PATTERN = re.compile(r"[0-9A-Fa-f]{64}\Z")
-WIREGUARD_KEY_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9+/])([A-Za-z0-9+/]{43}=)(?![A-Za-z0-9+/=])"
-)
+WIREGUARD_KEY_PATTERN = re.compile(r"(?<![A-Za-z0-9+/])([A-Za-z0-9+/]{43}=)(?![A-Za-z0-9+/=])")
 OUTPUT_NAME_PATTERN = re.compile(r"nordvpn_configs_\d{8}_\d{6}_\d{9}\Z")
 SUMMARY_PATTERNS = {
     "total": re.compile(r"Total Files Written:\s*(\d+)"),
@@ -34,6 +32,7 @@ EXPECTED_GENERATION_MESSAGES = (
     "Complete",
     "Output Directory:",
 )
+EXPECTED_OUTPUT_TREES = frozenset({"configs", "best_configs"})
 DNS_ADDRESS = "2606:4700:4700::1111"
 KEEPALIVE = 0
 REQUIRED_GROUP = "standard"
@@ -93,16 +92,19 @@ def parse_args() -> argparse.Namespace:
 
 
 def token_secret_values(token: str) -> frozenset[str]:
-    credential = f"token:{token}"
-    encoded_credential = base64.b64encode(credential.encode("ascii")).decode("ascii")
-    return frozenset(
-        {
-            token,
-            credential,
-            encoded_credential,
-            f"Basic {encoded_credential}",
-        }
-    )
+    values: set[str] = set()
+
+    for token_variant in {token, token.lower(), token.upper()}:
+        credential = f"token:{token_variant}"
+        encoded_credential = base64.b64encode(credential.encode("ascii")).decode("ascii")
+        values.add(token_variant)
+        values.add(encoded_credential)
+
+    return frozenset(values)
+
+
+def wireguard_secret_values(value: str) -> frozenset[str]:
+    return frozenset({value, value.removesuffix("=")})
 
 
 def mask_value(value: str) -> None:
@@ -154,9 +156,7 @@ def run_command(
             check=False,
         )
     except FileNotFoundError as error:
-        raise VerificationError(
-            f"{label}: executable was not found: {command[0]}"
-        ) from error
+        raise VerificationError(f"{label}: executable was not found: {command[0]}") from error
     except subprocess.TimeoutExpired as error:
         raise CommandFailure(
             label,
@@ -348,6 +348,8 @@ def extract_private_key(
         private_key,
         f"{label} private key",
     )
+    if not isinstance(private_key, str):
+        raise VerificationError("private_key must be a string")
     return private_key
 
 
@@ -398,9 +400,12 @@ def run_native_implementation(
         token_secret_values_set,
     )
 
+    prepare_empty_directory(root)
+
     key_result = run_command(
         f"{label} live get-key",
         [*command_prefix, "get-key"],
+        cwd=root,
         input_text=f"{token}\n",
     )
     require_secrets_absent(
@@ -414,14 +419,19 @@ def run_native_implementation(
         f"{label} live get-key",
     )
 
+    scan_tree_for_secrets(
+        root,
+        token_secret_values_set,
+    )
+    prepare_empty_directory(root)
+
     private_key = extract_private_key(
         key_result,
         f"{label} live get-key",
     )
-    known_secrets.add(private_key)
-    mask_value(private_key)
-
-    prepare_empty_directory(root)
+    private_key_secrets = wireguard_secret_values(private_key)
+    known_secrets.update(private_key_secrets)
+    mask_values(private_key_secrets)
 
     generate_result = run_command(
         f"{label} live generation",
@@ -623,9 +633,7 @@ def find_output_directory(
         raise VerificationError(f"{label} left temporary output behind")
 
     outputs = [
-        path
-        for path in entries
-        if path.is_dir() and OUTPUT_NAME_PATTERN.fullmatch(path.name)
+        path for path in entries if path.is_dir() and OUTPUT_NAME_PATTERN.fullmatch(path.name)
     ]
     if len(outputs) != 1:
         raise VerificationError(
@@ -634,11 +642,40 @@ def find_output_directory(
 
     if len(entries) != 1:
         unexpected = ", ".join(path.name for path in entries if path not in outputs)
-        raise VerificationError(
-            f"{label} produced unexpected top-level entries: {unexpected}"
-        )
+        raise VerificationError(f"{label} produced unexpected top-level entries: {unexpected}")
 
     return outputs[0]
+
+
+def validate_output_trees(
+    output: Path,
+    label: str,
+) -> tuple[Path, Path]:
+    try:
+        entries = sorted(
+            output.iterdir(),
+            key=lambda path: path.name,
+        )
+        actual_names = {path.name for path in entries}
+        invalid_names = sorted(
+            path.name
+            for path in entries
+            if path.name in EXPECTED_OUTPUT_TREES and (path.is_symlink() or not path.is_dir())
+        )
+    except OSError as error:
+        raise VerificationError(f"cannot inspect output trees for {label}: {error}") from error
+
+    missing = sorted(EXPECTED_OUTPUT_TREES - actual_names)
+    unexpected = sorted(actual_names - EXPECTED_OUTPUT_TREES)
+    if missing or unexpected or invalid_names:
+        raise VerificationError(
+            f"{label} output tree mismatch; "
+            f"missing={missing}, "
+            f"unexpected={unexpected}, "
+            f"invalid={invalid_names}"
+        )
+
+    return output / "configs", output / "best_configs"
 
 
 def validate_mode(
@@ -652,9 +689,7 @@ def validate_mode(
             ).st_mode
         )
     except OSError as error:
-        raise VerificationError(
-            f"cannot inspect permissions for {path}: {error}"
-        ) from error
+        raise VerificationError(f"cannot inspect permissions for {path}: {error}") from error
 
     if actual != expected:
         raise VerificationError(
@@ -678,13 +713,9 @@ def validate_filesystem(
             path = current / name
 
             if path.is_symlink():
-                raise VerificationError(
-                    f"{label} output contains a symbolic link: {path}"
-                )
+                raise VerificationError(f"{label} output contains a symbolic link: {path}")
             if not path.is_dir():
-                raise VerificationError(
-                    f"{label} output contains a non-directory: {path}"
-                )
+                raise VerificationError(f"{label} output contains a non-directory: {path}")
 
             validate_mode(path, 0o700)
 
@@ -692,17 +723,11 @@ def validate_filesystem(
             path = current / name
 
             if path.is_symlink():
-                raise VerificationError(
-                    f"{label} output contains a symbolic link: {path}"
-                )
+                raise VerificationError(f"{label} output contains a symbolic link: {path}")
             if not path.is_file():
-                raise VerificationError(
-                    f"{label} output contains a non-regular file: {path}"
-                )
+                raise VerificationError(f"{label} output contains a non-regular file: {path}")
             if path.suffix != ".conf":
-                raise VerificationError(
-                    f"{label} output contains an unexpected file: {path}"
-                )
+                raise VerificationError(f"{label} output contains an unexpected file: {path}")
 
             validate_mode(path, 0o600)
 
@@ -741,9 +766,7 @@ def validate_config(
     except OSError as error:
         raise VerificationError(f"cannot read {path}: {error}") from error
 
-    protected_values = tuple(
-        value.encode("utf-8") for value in token_secret_values_set if value
-    )
+    protected_values = tuple(value.encode("utf-8") for value in token_secret_values_set if value)
     if any(value in content for value in protected_values):
         raise VerificationError(f"a protected credential value was written to {path}")
 
@@ -806,10 +829,7 @@ def validate_relative_path(
 
     tree_name, combo, country, city, file_name = relative.parts
 
-    if tree_name not in {
-        "configs",
-        "best_configs",
-    }:
+    if tree_name not in EXPECTED_OUTPUT_TREES:
         raise VerificationError(f"unexpected output tree for {label}: {relative}")
 
     if not combo or not country or not city or not file_name.endswith(".conf"):
@@ -848,9 +868,7 @@ def validate_summary_output(
         "best": summary.best,
     }
     if actual != expected_counts:
-        raise VerificationError(
-            f"{label} summary counts were {actual}; expected {expected_counts}"
-        )
+        raise VerificationError(f"{label} summary counts were {actual}; expected {expected_counts}")
 
 
 def validate_generation(
@@ -864,15 +882,14 @@ def validate_generation(
         root,
         label,
     )
+    configs_root, best_root = validate_output_trees(
+        output,
+        label,
+    )
     validate_filesystem(
         output,
         label,
     )
-
-    configs_root = output / "configs"
-    best_root = output / "best_configs"
-    if not configs_root.is_dir() or not best_root.is_dir():
-        raise VerificationError(f"{label} output is missing configs or best_configs")
 
     config_files = sorted(configs_root.rglob("*.conf"))
     best_files = sorted(best_root.rglob("*.conf"))
@@ -902,9 +919,7 @@ def validate_generation(
             label,
         )
         if location in best_locations:
-            raise VerificationError(
-                f"{label} generated duplicate optimized location {location}"
-            )
+            raise VerificationError(f"{label} generated duplicate optimized location {location}")
 
         best_locations.add(location)
         validate_config(
@@ -922,7 +937,8 @@ def validate_generation(
 
         if path.read_bytes() != counterpart.read_bytes():
             raise VerificationError(
-                "optimized configuration differs from its standard counterpart: "
+                "optimized configuration differs from its "
+                "standard counterpart: "
                 f"{path.relative_to(best_root)}"
             )
 
@@ -937,7 +953,7 @@ def validate_generation(
     summary = TreeSummary(
         configs=len(config_files),
         best=len(best_files),
-        used_location_fallback="Location unavailable" in combined_output(result),
+        used_location_fallback=("Location unavailable" in combined_output(result)),
     )
     validate_summary_output(
         result,
@@ -971,9 +987,7 @@ def scan_tree_for_secrets(
                 raise VerificationError(f"cannot inspect {path}: {error}") from error
 
             if any(value in content for value in protected_values):
-                raise VerificationError(
-                    f"a protected credential value persisted in {path}"
-                )
+                raise VerificationError(f"a protected credential value persisted in {path}")
 
 
 def sanitize_text(
@@ -1082,9 +1096,7 @@ def execute(
     )
 
     if python_summary.private_key != go_summary.private_key:
-        raise VerificationError(
-            "Python and Go returned different NordLynx private keys"
-        )
+        raise VerificationError("Python and Go returned different NordLynx private keys")
 
     docker_summary = run_docker_implementation(
         args.docker_image,
@@ -1166,7 +1178,11 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    except (VerificationError, OSError, ValueError) as error:
+    except (
+        VerificationError,
+        OSError,
+        ValueError,
+    ) as error:
         message = (
             sanitize_text(
                 str(error),

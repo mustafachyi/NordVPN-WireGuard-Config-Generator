@@ -140,8 +140,17 @@ func TestGetGeoRejectsMissingCoordinates(t *testing.T) {
 }
 
 func TestGetServers(t *testing.T) {
+	publicKey := validKey(8)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		_, _ = writer.Write([]byte(`[{"hostname":"us1.example.com"}]`))
+		if request.URL.Path != "/servers" {
+			http.NotFound(writer, request)
+			return
+		}
+		_, _ = fmt.Fprintf(
+			writer,
+			`[{"hostname":"us1.example.com","station":"192.0.2.1","load":10,"locations":[{"latitude":36.75,"longitude":3.06,"country":{"name":"Algeria","city":{"name":"Algiers"}}}],"groups":[{"identifier":"legacy_standard"}],"technologies":[{"metadata":[{"name":"public_key","value":%q}]}]}]`,
+			publicKey,
+		)
 	}))
 	defer server.Close()
 
@@ -149,7 +158,17 @@ func TestGetServers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetServers() error = %v", err)
 	}
-	if len(servers) != 1 || servers[0].Hostname != "us1.example.com" {
+	if len(servers) != 1 {
+		t.Fatalf("GetServers() returned %d records, want 1", len(servers))
+	}
+
+	got := servers[0]
+	if got.Hostname != "us1.example.com" ||
+		got.Station != "192.0.2.1" ||
+		got.Load != 10 ||
+		len(got.Locations) != 1 ||
+		len(got.Groups) != 1 ||
+		len(got.Technologies) != 1 {
 		t.Fatalf("GetServers() = %+v", servers)
 	}
 }
@@ -171,18 +190,46 @@ func TestGetJSONFailures(t *testing.T) {
 		handler http.HandlerFunc
 		limit   int64
 	}{
-		{name: "status", handler: func(writer http.ResponseWriter, request *http.Request) { writer.WriteHeader(http.StatusBadGateway) }, limit: 64},
-		{name: "empty", handler: func(writer http.ResponseWriter, request *http.Request) {}, limit: 64},
-		{name: "malformed", handler: func(writer http.ResponseWriter, request *http.Request) { _, _ = writer.Write([]byte("{")) }, limit: 64},
-		{name: "trailing", handler: func(writer http.ResponseWriter, request *http.Request) { _, _ = writer.Write([]byte(`{} {}`)) }, limit: 64},
-		{name: "oversized", handler: func(writer http.ResponseWriter, request *http.Request) {
-			_, _ = writer.Write([]byte(strings.Repeat("x", 65)))
-		}, limit: 64},
+		{
+			name: "status",
+			handler: func(writer http.ResponseWriter, request *http.Request) {
+				writer.WriteHeader(http.StatusBadGateway)
+			},
+			limit: 64,
+		},
+		{
+			name:    "empty",
+			handler: func(writer http.ResponseWriter, request *http.Request) {},
+			limit:   64,
+		},
+		{
+			name: "malformed",
+			handler: func(writer http.ResponseWriter, request *http.Request) {
+				_, _ = writer.Write([]byte("{"))
+			},
+			limit: 64,
+		},
+		{
+			name: "trailing",
+			handler: func(writer http.ResponseWriter, request *http.Request) {
+				_, _ = writer.Write([]byte(`{} {}`))
+			},
+			limit: 64,
+		},
+		{
+			name: "oversized",
+			handler: func(writer http.ResponseWriter, request *http.Request) {
+				_, _ = writer.Write([]byte(strings.Repeat("x", 65)))
+			},
+			limit: 64,
+		},
 	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(test.handler)
 			defer server.Close()
+
 			client := newNordClient(server.Client(), endpoints{})
 			var destination map[string]any
 			if err := client.getJSON(context.Background(), server.URL, nil, test.limit, &destination); err == nil {
@@ -200,6 +247,7 @@ func TestGetJSONHonorsContext(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
+
 	client := newNordClient(server.Client(), endpoints{})
 	var destination map[string]any
 	if err := client.getJSON(ctx, server.URL, nil, 64, &destination); err == nil {
@@ -240,8 +288,13 @@ func TestGetJSONRequestAndTransportFailures(t *testing.T) {
 
 func TestGetJSONReadAndTrailingFailures(t *testing.T) {
 	client := newNordClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Body: failingBody{}, Header: make(http.Header)}, nil
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       failingBody{},
+			Header:     make(http.Header),
+		}, nil
 	})}, endpoints{})
+
 	var destination map[string]any
 	if err := client.getJSON(context.Background(), "https://example.com", nil, 64, &destination); err == nil || !strings.Contains(err.Error(), "decode response") {
 		t.Fatalf("getJSON() error = %v", err)
@@ -251,6 +304,7 @@ func TestGetJSONReadAndTrailingFailures(t *testing.T) {
 		_, _ = io.WriteString(writer, `{} trailing`)
 	}))
 	defer server.Close()
+
 	client = newNordClient(server.Client(), endpoints{})
 	if err := client.getJSON(context.Background(), server.URL, nil, 64, &destination); err == nil || !strings.Contains(err.Error(), "trailing") {
 		t.Fatalf("getJSON() error = %v", err)

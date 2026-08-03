@@ -103,14 +103,209 @@ func (c *NordClient) GetGeo(ctx context.Context) (models.Coordinates, error) {
 }
 
 func (c *NordClient) GetServers(ctx context.Context) ([]models.RawServer, error) {
-	var servers []models.RawServer
-	if err := c.getJSON(ctx, c.endpoints.servers, nil, serversResponseLimit, &servers); err != nil {
+	var records []json.RawMessage
+	if err := c.getJSON(ctx, c.endpoints.servers, nil, serversResponseLimit, &records); err != nil {
 		return nil, fmt.Errorf("get servers: %w", err)
 	}
-	if len(servers) == 0 {
+	if len(records) == 0 {
 		return nil, fmt.Errorf("server response was empty")
 	}
-	return servers, nil
+	return DecodeServerRecords(records), nil
+}
+
+func DecodeServerRecords(records []json.RawMessage) []models.RawServer {
+	servers := make([]models.RawServer, len(records))
+	for index, record := range records {
+		server, ok := decodeServerRecord(record)
+		if ok {
+			servers[index] = server
+		}
+	}
+	return servers
+}
+
+func decodeServerRecord(value json.RawMessage) (models.RawServer, bool) {
+	object, ok := decodeObject(value)
+	if !ok {
+		return models.RawServer{}, false
+	}
+
+	hostname, ok := decodeString(object["hostname"])
+	if !ok {
+		return models.RawServer{}, false
+	}
+	load, ok := decodeInt(object["load"])
+	if !ok {
+		return models.RawServer{}, false
+	}
+	locations, ok := decodeArray(object["locations"])
+	if !ok || len(locations) == 0 {
+		return models.RawServer{}, false
+	}
+
+	decodedLocations := make([]models.RawLocation, 0, len(locations))
+	for index, value := range locations {
+		location, locationOK := decodeLocation(value)
+		if !locationOK {
+			if index == 0 {
+				return models.RawServer{}, false
+			}
+			continue
+		}
+		decodedLocations = append(decodedLocations, location)
+	}
+
+	station, _ := decodeString(object["station"])
+	return models.RawServer{
+		Hostname:     hostname,
+		Station:      station,
+		Load:         load,
+		Locations:    decodedLocations,
+		Groups:       decodeGroups(object["groups"]),
+		Technologies: decodeTechnologies(object["technologies"]),
+	}, true
+}
+
+func decodeObject(value json.RawMessage) (map[string]json.RawMessage, bool) {
+	var object map[string]json.RawMessage
+	if len(value) == 0 || json.Unmarshal(value, &object) != nil || object == nil {
+		return nil, false
+	}
+	return object, true
+}
+
+func decodeString(value json.RawMessage) (string, bool) {
+	var decoded *string
+	if len(value) == 0 || json.Unmarshal(value, &decoded) != nil || decoded == nil {
+		return "", false
+	}
+	return *decoded, true
+}
+
+func decodeInt(value json.RawMessage) (int, bool) {
+	var decoded *int
+	if len(value) == 0 || json.Unmarshal(value, &decoded) != nil || decoded == nil {
+		return 0, false
+	}
+	return *decoded, true
+}
+
+func decodeFloat(value json.RawMessage) (float64, bool) {
+	var decoded *float64
+	if len(value) == 0 || json.Unmarshal(value, &decoded) != nil || decoded == nil {
+		return 0, false
+	}
+	return *decoded, true
+}
+
+func decodeArray(value json.RawMessage) ([]json.RawMessage, bool) {
+	var decoded []json.RawMessage
+	if len(value) == 0 || json.Unmarshal(value, &decoded) != nil {
+		return nil, false
+	}
+	return decoded, true
+}
+
+func decodeLocation(value json.RawMessage) (models.RawLocation, bool) {
+	object, ok := decodeObject(value)
+	if !ok {
+		return models.RawLocation{}, false
+	}
+	latitude, ok := decodeFloat(object["latitude"])
+	if !ok {
+		return models.RawLocation{}, false
+	}
+	longitude, ok := decodeFloat(object["longitude"])
+	if !ok {
+		return models.RawLocation{}, false
+	}
+	countryObject, ok := decodeObject(object["country"])
+	if !ok {
+		return models.RawLocation{}, false
+	}
+	country, ok := decodeString(countryObject["name"])
+	if !ok {
+		return models.RawLocation{}, false
+	}
+	cityObject, ok := decodeObject(countryObject["city"])
+	if !ok {
+		return models.RawLocation{}, false
+	}
+	city, ok := decodeString(cityObject["name"])
+	if !ok {
+		return models.RawLocation{}, false
+	}
+
+	return models.RawLocation{
+		Latitude:  latitude,
+		Longitude: longitude,
+		Country: models.RawCountry{
+			Name: country,
+			City: models.RawCity{Name: city},
+		},
+	}, true
+}
+
+func decodeGroups(value json.RawMessage) []models.RawGroup {
+	values, ok := decodeArray(value)
+	if !ok {
+		return nil
+	}
+
+	groups := make([]models.RawGroup, 0, len(values))
+	for _, value := range values {
+		object, ok := decodeObject(value)
+		if !ok {
+			continue
+		}
+		identifier, ok := decodeString(object["identifier"])
+		if !ok {
+			continue
+		}
+		groups = append(groups, models.RawGroup{Identifier: identifier})
+	}
+	return groups
+}
+
+func decodeTechnologies(value json.RawMessage) []models.RawTechnology {
+	values, ok := decodeArray(value)
+	if !ok {
+		return nil
+	}
+
+	technologies := make([]models.RawTechnology, 0, len(values))
+	for _, value := range values {
+		object, ok := decodeObject(value)
+		if !ok {
+			continue
+		}
+		metadataValues, ok := decodeArray(object["metadata"])
+		if !ok {
+			continue
+		}
+
+		metadata := make([]models.RawMetadata, 0, len(metadataValues))
+		for _, metadataValue := range metadataValues {
+			metadataObject, ok := decodeObject(metadataValue)
+			if !ok {
+				continue
+			}
+			name, ok := decodeString(metadataObject["name"])
+			if !ok {
+				continue
+			}
+			value, ok := decodeString(metadataObject["value"])
+			if !ok {
+				continue
+			}
+			metadata = append(metadata, models.RawMetadata{
+				Name:  name,
+				Value: value,
+			})
+		}
+		technologies = append(technologies, models.RawTechnology{Metadata: metadata})
+	}
+	return technologies
 }
 
 func (c *NordClient) getJSON(ctx context.Context, target string, headers http.Header, limit int64, destination any) error {

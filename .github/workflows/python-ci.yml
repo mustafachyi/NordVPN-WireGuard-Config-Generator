@@ -4,11 +4,15 @@ on:
   push:
     paths:
       - nordgen/**
+      - nordgen-go/testdata/server_conformance.json
+      - .github/scripts/live_cli_acceptance.py
       - .github/workflows/python-ci.yml
       - .github/workflows/publish-pypi.yml
   pull_request:
     paths:
       - nordgen/**
+      - nordgen-go/testdata/server_conformance.json
+      - .github/scripts/live_cli_acceptance.py
       - .github/workflows/python-ci.yml
       - .github/workflows/publish-pypi.yml
   workflow_dispatch:
@@ -44,13 +48,13 @@ jobs:
         run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
 
       - name: Verify formatting
-        run: python -m ruff format --check .
+        run: python -m ruff format --config pyproject.toml --check . ../.github/scripts/live_cli_acceptance.py
 
       - name: Run static analysis
-        run: python -m ruff check .
+        run: python -m ruff check --config pyproject.toml . ../.github/scripts/live_cli_acceptance.py
 
       - name: Run type checking
-        run: python -m mypy
+        run: python -m mypy && python -m mypy --strict ../.github/scripts/live_cli_acceptance.py
 
       - name: Run tests with coverage
         run: python -m pytest
