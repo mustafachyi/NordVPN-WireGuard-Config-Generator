@@ -7,6 +7,9 @@
     "worker",
     "frontend"
   ],
+  "overrides": {
+    "undici": "7.29.0"
+  },
   "scripts": {
     "dev": "bun run --cwd frontend dev",
     "build": "bun run --cwd frontend build",

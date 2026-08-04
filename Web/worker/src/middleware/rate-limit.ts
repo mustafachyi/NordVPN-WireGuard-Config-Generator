@@ -1,10 +1,15 @@
 import type { MiddlewareHandler } from "hono";
 import { RATE_LIMIT_RETRY_AFTER_SECONDS } from "../constants";
 
-export function apiRateLimit(scope: string): MiddlewareHandler<{ Bindings: Env }> {
+type ApiRateLimiterBinding = "API_RATE_LIMITER" | "KEY_RATE_LIMITER";
+
+export function apiRateLimit(
+  binding: ApiRateLimiterBinding,
+  scope: string,
+): MiddlewareHandler<{ Bindings: Env }> {
   return async (context, next) => {
     const clientIp = context.req.header("cf-connecting-ip") ?? "local";
-    const { success } = await context.env.API_RATE_LIMITER.limit({
+    const { success } = await context.env[binding].limit({
       key: `${scope}:${clientIp}`,
     });
 

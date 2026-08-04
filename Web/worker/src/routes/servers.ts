@@ -19,37 +19,41 @@ serversRoute.use("*", cors({
   maxAge: 86_400,
 }));
 
-serversRoute.get("/", apiRateLimit("servers"), async (context) => {
-  if (new URL(context.req.url).search) {
-    return context.json({ error: "Query parameters are not supported" }, 400);
-  }
+serversRoute.get(
+  "/",
+  apiRateLimit("API_RATE_LIMITER", "servers"),
+  async (context) => {
+    if (new URL(context.req.url).search) {
+      return context.json({ error: "Query parameters are not supported" }, 400);
+    }
 
-  let state: ServerCacheState;
+    let state: ServerCacheState;
 
-  try {
-    state = await getServerCache(context.env)
-      ?? await refreshServerCache(context.env, null);
-  } catch (error) {
-    console.error({
-      event: "server_cache_unavailable",
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return context.json({ error: "Server data unavailable" }, 503);
-  }
+    try {
+      state = await getServerCache(context.env)
+        ?? await refreshServerCache(context.env, null);
+    } catch (error) {
+      console.error({
+        event: "server_cache_unavailable",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return context.json({ error: "Server data unavailable" }, 503);
+    }
 
-  const headers = createCatalogHeaders(state.etag);
-  if (matchesIfNoneMatch(context.req.header("if-none-match"), state.etag)) {
-    return new Response(null, {
-      status: 304,
+    const headers = createCatalogHeaders(state.etag);
+    if (matchesIfNoneMatch(context.req.header("if-none-match"), state.etag)) {
+      return new Response(null, {
+        status: 304,
+        headers,
+      });
+    }
+
+    return new Response(state.json, {
+      status: 200,
       headers,
     });
-  }
-
-  return new Response(state.json, {
-    status: 200,
-    headers,
-  });
-});
+  },
+);
 
 function createCatalogHeaders(etag: string): Headers {
   return new Headers({
@@ -61,7 +65,6 @@ function createCatalogHeaders(etag: string): Headers {
     ].join(", "),
     "Content-Type": "application/json; charset=utf-8",
     ETag: etag,
-    Vary: "Accept-Encoding",
     "X-Content-Type-Options": "nosniff",
   });
 }

@@ -41,17 +41,35 @@ Unknown API paths return:
 | `404 Not Found`             | No API route matched                |
 | `500 Internal Server Error` | An unhandled request error occurred |
 
-## Cross-Origin Access
+## Browser and Cross-Origin Access
 
-| Route          | Allowed cross-origin methods | Allowed request headers |
-| -------------- | ---------------------------- | ----------------------- |
-| `/api/servers` | `GET`, `HEAD`, `OPTIONS`     | `If-None-Match`         |
-| `/api/key`     | `POST`, `OPTIONS`            | `Content-Type`          |
-| `/api/sync`    | None                         | None                    |
+| Route          | Browser access policy                         |
+| -------------- | --------------------------------------------- |
+| `/api/servers` | Public `GET`, `HEAD`, and `OPTIONS` access    |
+| `/api/key`     | Same-origin browser `POST` requests only      |
+| `/api/sync`    | No cross-origin browser access                |
 
-The public routes allow any origin.
+The public server-catalog route allows any origin and accepts the
+`If-None-Match` request header.
 
-CORS preflight responses may be cached for 86400 seconds.
+The key route does not enable CORS. A request must provide all of the following:
+
+```text
+Origin: <the exact Worker origin>
+Sec-Fetch-Site: same-origin
+Sec-Fetch-Mode: cors or same-origin
+Sec-Fetch-Dest: empty
+```
+
+Missing or mismatched browser request metadata returns:
+
+```http
+403 Forbidden
+```
+
+These checks prevent normal cross-origin browser use. They are not an
+authentication mechanism: non-browser clients can construct equivalent request
+headers. The rate limiter therefore remains an independent protection.
 
 ## Server Catalogue
 
@@ -90,7 +108,6 @@ The ETag comparison accepts weak and strong forms of the same value.
 Content-Type: application/json; charset=utf-8
 ETag: W/"sha256-..."
 Cache-Control: public, max-age=300, stale-while-revalidate=60, stale-if-error=86400
-Vary: Accept-Encoding
 ```
 
 The response body contains two values:
@@ -99,7 +116,8 @@ The response body contains two values:
 [publicKeyCollection, countries]
 ```
 
-`publicKeyCollection` contains concatenated 43-character Base64 public keys without their final `=` padding.
+`publicKeyCollection` contains concatenated 43-character Base64 public keys
+without their final `=` padding.
 
 Each country has this structure:
 
@@ -113,7 +131,8 @@ Each city begins with:
 [cityName, defaultKeyIndex, defaultGroupMask, packedServerData...]
 ```
 
-The packed values contain server identifiers, load values, IPv4 deltas, public-key references, group masks, and optional exceptions.
+The packed values contain server identifiers, load values, IPv4 deltas,
+public-key references, group masks, and optional exceptions.
 
 The reference decoder is:
 
@@ -137,14 +156,22 @@ The successful response is cacheable for five minutes.
 
 It also permits:
 
-* 60 seconds of stale content during revalidation.
-* 86400 seconds of stale content when an error prevents a normal refresh.
+- 60 seconds of stale content during revalidation.
+- 86400 seconds of stale edge-cache content when an error prevents a normal
+  refresh.
 
-A Cloudflare cache hit may be served before Worker route execution.
+A Cloudflare cache hit may be served before Worker route execution. Such hits
+do not reach the route rate limiter or KV.
 
-Requests that reach the route use KV as the catalogue source. The route refreshes from the configured upstream source only when KV does not contain a valid catalogue.
+Requests that reach the route use KV as the catalogue source. The route
+refreshes from the configured upstream source only when KV does not contain a
+valid catalogue.
 
 The ETag is generated from a SHA-256 digest of the exact catalogue JSON.
+
+KV retains the last successfully validated catalogue without a source-age
+expiry. Persistent source-refresh failures can therefore leave an older
+last-known-good catalogue available after the HTTP `stale-if-error` period.
 
 ## Private-Key Exchange
 
@@ -152,6 +179,8 @@ The ETag is generated from a SHA-256 digest of the exact catalogue JSON.
 POST /api/key
 Content-Type: application/json
 ```
+
+The request must originate from the browser application on the same origin.
 
 ### Request Body
 
@@ -182,16 +211,18 @@ The returned value must represent exactly 32 decoded bytes.
 
 ### Responses
 
-| Status                    | Meaning                                                     |
-| ------------------------- | ----------------------------------------------------------- |
-| `200 OK`                  | Private key returned                                        |
-| `400 Bad Request`         | JSON body or token was invalid                              |
-| `401 Unauthorized`        | The upstream credential service returned `401`              |
-| `413 Content Too Large`   | Request body exceeded 1024 bytes                            |
-| `429 Too Many Requests`   | Rate limit exceeded                                         |
+| Status                    | Meaning                                                    |
+| ------------------------- | ---------------------------------------------------------- |
+| `200 OK`                  | Private key returned                                       |
+| `400 Bad Request`         | JSON body or token was invalid                             |
+| `401 Unauthorized`        | The upstream credential service returned `401`             |
+| `403 Forbidden`           | Same-origin browser metadata was absent or invalid         |
+| `413 Content Too Large`   | Request body exceeded 1024 bytes                           |
+| `429 Too Many Requests`   | Rate limit exceeded                                        |
 | `503 Service Unavailable` | The upstream request failed or returned an invalid response |
 
-The access token and returned key are not intentionally stored by application code.
+The access token and returned key are not intentionally stored by application
+code.
 
 ## Manual Synchronization
 
@@ -223,28 +254,35 @@ Cache-Control: no-store
 | `401 Unauthorized` | Synchronization token was missing or invalid  |
 | `502 Bad Gateway`  | Catalogue refresh failed                      |
 
-The provided token and configured secret are hashed before a timing-safe comparison.
+The provided token and configured secret are hashed before a timing-safe
+comparison.
 
 This route does not enable cross-origin access.
 
 ## Rate Limiting
 
-The configured public limit is:
+Two independent Cloudflare rate-limit bindings are used:
 
-```text
-100 requests per 60 seconds
-```
+| Route                               | Limit                  | Binding              |
+| ----------------------------------- | ---------------------- | -------------------- |
+| `/api/servers` requests reaching the Worker | 100 per 60 seconds | `API_RATE_LIMITER`   |
+| `/api/key` `POST` requests          | 10 per 60 seconds      | `KEY_RATE_LIMITER`   |
 
-Separate scopes are used for:
+Each binding uses a separate namespace.
 
-* Server catalogue requests that reach the Worker.
-* Private-key exchange requests.
+Each rate-limit key contains:
 
-Each rate-limit key includes the connecting client IP address.
+- A route scope.
+- The connecting client IP address.
 
-When `cf-connecting-ip` is unavailable, the fallback key is `local`.
+When `cf-connecting-ip` is unavailable, the fallback client key is `local`.
 
-Cloudflare cache hits can bypass Worker execution and therefore do not reach the route limiter.
+The limits are enforced independently at Cloudflare locations and use
+eventually consistent counters. They are abuse controls rather than exact
+global accounting limits.
+
+Users sharing a public egress IP, carrier NAT, corporate proxy, or VPN exit can
+share the same quota.
 
 A rejected request includes:
 
@@ -253,7 +291,11 @@ A rejected request includes:
 Retry-After: 60
 ```
 
-The `Retry-After` header is exposed through CORS on the public routes.
+`Retry-After` is exposed through CORS on the public server-catalog route.
+
+Cloudflare cache hits for `/api/servers` do not execute the Worker and do not
+reach its limiter. `POST /api/key` is not cacheable and reaches the key-route
+limiter.
 
 ## Limits
 
@@ -268,9 +310,9 @@ The `Retry-After` header is exposed through CORS on the public routes.
 
 Before a source response is stored, the Worker checks that it:
 
-* Is valid JSON.
-* Contains a public-key collection in the expected format.
-* Contains a country array.
-* Uses the required country and city tuple structure.
+- Is valid JSON.
+- Contains a public-key collection in the expected format.
+- Contains a country array.
+- Uses the required country and city tuple structure.
 
 The browser applies additional validation while decoding individual records.

@@ -1,6 +1,5 @@
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { cors } from "hono/cors";
 import {
   CREDENTIAL_RESPONSE_MAX_BYTES,
   REQUEST_BODY_LIMIT_BYTES,
@@ -18,21 +17,26 @@ import {
 
 const keyRoute = new Hono<{ Bindings: Env }>();
 
-keyRoute.use("*", cors({
-  origin: "*",
-  allowMethods: ["POST", "OPTIONS"],
-  allowHeaders: ["Content-Type"],
-  exposeHeaders: ["Retry-After"],
-  maxAge: 86_400,
-}));
+const sameOriginBrowserOnly: MiddlewareHandler<{ Bindings: Env }> = async (
+  context,
+  next,
+) => {
+  if (!isSameOriginBrowserRequest(context.req.raw)) {
+    return context.json({ error: "Forbidden" }, 403);
+  }
+
+  await next();
+};
+
+keyRoute.use("*", async (context, next) => {
+  context.header("Cache-Control", "no-store");
+  await next();
+});
 
 keyRoute.post(
   "/",
-  async (context, next) => {
-    context.header("Cache-Control", "no-store");
-    await next();
-  },
-  apiRateLimit("key"),
+  apiRateLimit("KEY_RATE_LIMITER", "key"),
+  sameOriginBrowserOnly,
   bodyLimit({
     maxSize: REQUEST_BODY_LIMIT_BYTES,
     onError: (context) => context.json({ error: "Request body too large" }, 413),
@@ -90,5 +94,14 @@ keyRoute.post(
     return context.json({ key: result.data.nordlynx_private_key }, 200);
   },
 );
+
+function isSameOriginBrowserRequest(request: Request): boolean {
+  const fetchMode = request.headers.get("sec-fetch-mode");
+
+  return request.headers.get("origin") === new URL(request.url).origin
+    && request.headers.get("sec-fetch-site") === "same-origin"
+    && (fetchMode === "cors" || fetchMode === "same-origin")
+    && request.headers.get("sec-fetch-dest") === "empty";
+}
 
 export { keyRoute };
