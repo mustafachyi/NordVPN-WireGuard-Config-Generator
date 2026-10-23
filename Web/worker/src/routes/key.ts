@@ -45,10 +45,8 @@ keyRoute.post(
   async (context) => {
     const body = context.req.valid("json");
 
-    let upstream: Response;
-
     try {
-      upstream = await fetchWithTimeout(
+      return await fetchWithTimeout(
         context.env.NORDVPN_CREDENTIALS_URL,
         {
           headers: {
@@ -57,6 +55,34 @@ keyRoute.post(
           },
         },
         UPSTREAM_TIMEOUT_MS,
+        async (upstream) => {
+          if (upstream.status === 401) {
+            await upstream.body?.cancel();
+            return context.json({ error: "Expired token" }, 401);
+          }
+
+          if (!upstream.ok) {
+            await upstream.body?.cancel();
+            return context.json({ error: "Upstream error" }, 503);
+          }
+
+          let value: unknown;
+
+          try {
+            value = JSON.parse(
+              await readResponseText(upstream, CREDENTIAL_RESPONSE_MAX_BYTES),
+            );
+          } catch {
+            return context.json({ error: "Invalid upstream response" }, 503);
+          }
+
+          const result = nordVpnCredentialsSchema.safeParse(value);
+          if (!result.success) {
+            return context.json({ error: "Invalid upstream response" }, 503);
+          }
+
+          return context.json({ key: result.data.nordlynx_private_key }, 200);
+        },
       );
     } catch (error) {
       console.error({
@@ -65,33 +91,6 @@ keyRoute.post(
       });
       return context.json({ error: "Upstream unavailable" }, 503);
     }
-
-    if (upstream.status === 401) {
-      await upstream.body?.cancel();
-      return context.json({ error: "Expired token" }, 401);
-    }
-
-    if (!upstream.ok) {
-      await upstream.body?.cancel();
-      return context.json({ error: "Upstream error" }, 503);
-    }
-
-    let value: unknown;
-
-    try {
-      value = JSON.parse(
-        await readResponseText(upstream, CREDENTIAL_RESPONSE_MAX_BYTES),
-      );
-    } catch {
-      return context.json({ error: "Invalid upstream response" }, 503);
-    }
-
-    const result = nordVpnCredentialsSchema.safeParse(value);
-    if (!result.success) {
-      return context.json({ error: "Invalid upstream response" }, 503);
-    }
-
-    return context.json({ key: result.data.nordlynx_private_key }, 200);
   },
 );
 

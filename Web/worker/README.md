@@ -74,7 +74,7 @@ rate-limit policies in the Cloudflare account.
 
 ## Prerequisites
 
-- Bun 1.3.14
+- Bun 1.4.4
 - A Cloudflare account for production deployment
 - A Workers KV namespace
 - Two Workers Rate Limiting bindings
@@ -112,8 +112,8 @@ configuration.
 
 ## Verification
 
-Generate the Worker binding types, run TypeScript checking, and build the
-frontend:
+Run regression tests, generate the Worker binding types, run TypeScript checking,
+and build the frontend:
 
 ```cmd
 bun run check
@@ -128,6 +128,7 @@ bun audit
 `bun run check` performs the following sequence:
 
 ```text
+bun test
 wrangler types
 TypeScript type checking
 Vite production build
@@ -166,11 +167,12 @@ bun run deploy
 
 The deployment script:
 
-1. Generates Worker binding types.
-2. Runs TypeScript checking.
-3. Builds the frontend.
-4. Uploads the static assets.
-5. Deploys the Worker.
+1. Runs regression tests.
+2. Generates Worker binding types.
+3. Runs TypeScript checking.
+4. Builds the frontend.
+5. Uploads the static assets.
+6. Deploys the Worker.
 
 Dependency auditing remains a separate command.
 

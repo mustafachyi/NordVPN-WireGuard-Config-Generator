@@ -7,12 +7,12 @@
     "type-check": "bun run types && tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@hono/zod-validator": "0.8.0",
-    "hono": "4.12.34",
-    "zod": "4.4.3"
+    "@hono/zod-validator": "0.9.1",
+    "hono": "4.13.13",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "typescript": "7.0.2",
-    "wrangler": "4.115.0"
+    "wrangler": "4.152.0"
   }
 }

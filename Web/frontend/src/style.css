@@ -46,7 +46,6 @@
   body,
   #app,
   * {
-    -ms-overflow-style: none;
     scrollbar-width: none;
   }
 
@@ -78,7 +77,6 @@
   }
 
   input[type="number"] {
-    -moz-appearance: textfield;
     appearance: textfield;
   }
 }

@@ -2,22 +2,23 @@
   "name": "nordgen",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.3.14",
+  "packageManager": "bun@1.4.4",
   "workspaces": [
     "worker",
     "frontend"
   ],
   "overrides": {
-    "undici": "7.29.0"
+    "undici": "7.30.1"
   },
   "scripts": {
     "dev": "bun run --cwd frontend dev",
     "build": "bun run --cwd frontend build",
     "preview": "bun run --cwd frontend preview",
     "types": "bun run --cwd worker types",
+    "test": "bun test",
     "type-check": "bun run --cwd worker type-check",
-    "check": "bun run type-check && bun run build",
+    "check": "bun run test && bun run type-check && bun run build",
     "audit": "bun audit",
-    "deploy": "bun run type-check && bun run --cwd frontend deploy"
+    "deploy": "bun run test && bun run type-check && bun run --cwd frontend deploy"
   }
 }

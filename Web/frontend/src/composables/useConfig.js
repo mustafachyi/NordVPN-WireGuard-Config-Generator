@@ -212,7 +212,6 @@ export function useConfig() {
 
       privateKey.value = value
     },
-    buildText,
     download,
     downloadBatch,
     copy,

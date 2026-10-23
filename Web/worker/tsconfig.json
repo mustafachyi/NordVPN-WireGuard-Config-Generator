@@ -6,6 +6,8 @@
     "lib": ["esnext"],
     "types": ["./worker-configuration.d.ts"],
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
     "noEmit": true

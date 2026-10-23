@@ -25,14 +25,13 @@ async function request(endpoint, options = {}) {
   try {
     const method = options.method?.toUpperCase() || 'GET'
     const headers = new Headers(options.headers)
-    const { signal: _externalSignal, ...fetchOptions } = options
 
     if (method !== 'GET' && options.body !== undefined && !headers.has('Content-Type')) {
       headers.set('Content-Type', 'application/json')
     }
 
     const response = await fetch(`${API_BASE}${endpoint}`, {
-      ...fetchOptions,
+      ...options,
       headers,
       signal: controller.signal,
     })
@@ -47,9 +46,7 @@ async function request(endpoint, options = {}) {
         message = response.statusText || message
       }
 
-      const error = new Error(message)
-      error.status = response.status
-      throw error
+      throw new Error(message)
     }
 
     if (response.status === 204) {
@@ -57,9 +54,9 @@ async function request(endpoint, options = {}) {
     }
 
     const contentType = response.headers.get('content-type')?.toLowerCase() || ''
-    return contentType.includes('application/json')
+    return await (contentType.includes('application/json')
       ? response.json()
-      : response.text()
+      : response.text())
   } catch (error) {
     if (controller.signal.aborted) {
       throw new Error(abortReason === 'timeout' ? 'Request timeout' : 'Request cancelled')

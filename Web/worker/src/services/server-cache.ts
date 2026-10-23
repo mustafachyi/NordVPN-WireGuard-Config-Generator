@@ -55,32 +55,33 @@ export async function refreshServerCache(
     headers.set("If-None-Match", sourceValidator);
   }
 
-  const response = await fetchWithTimeout(
+  const state = await fetchWithTimeout(
     env.SERVER_SOURCE_URL,
     { headers },
     UPSTREAM_TIMEOUT_MS,
+    async (response): Promise<ServerCacheState> => {
+      if (response.status === 304) {
+        if (previousState) {
+          return previousState;
+        }
+        throw new Error("Server source returned 304 without a cached catalog");
+      }
+
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(`Server source returned HTTP ${response.status}`);
+      }
+
+      const json = await readResponseText(response, SERVER_SOURCE_MAX_BYTES);
+      validateServerPayload(json);
+
+      return {
+        etag: await createContentEtag(json),
+        sourceEtag: normalizeEtag(response.headers.get("etag")),
+        json,
+      };
+    },
   );
-
-  if (response.status === 304) {
-    if (previousState) {
-      return previousState;
-    }
-    throw new Error("Server source returned 304 without a cached catalog");
-  }
-
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error(`Server source returned HTTP ${response.status}`);
-  }
-
-  const json = await readResponseText(response, SERVER_SOURCE_MAX_BYTES);
-  validateServerPayload(json);
-
-  const state: ServerCacheState = {
-    etag: await createContentEtag(json),
-    sourceEtag: normalizeEtag(response.headers.get("etag")),
-    json,
-  };
 
   if (
     previousState

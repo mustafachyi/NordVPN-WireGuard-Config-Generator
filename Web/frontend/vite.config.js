@@ -17,10 +17,12 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
-  esbuild: {
-    legalComments: 'none',
-  },
   build: {
+    rolldownOptions: {
+      output: {
+        comments: { legal: false },
+      },
+    },
     reportCompressedSize: false,
     sourcemap: false,
   },

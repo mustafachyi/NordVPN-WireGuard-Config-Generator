@@ -9,7 +9,7 @@ const STYLES = {
   error: 'bg-nord-load-critical-bg border-nord-load-critical-text/20 text-nord-load-critical-text shadow-nord-load-critical-text/10',
 }
 
-const props = defineProps({
+defineProps({
   msg: { type: String, required: true },
   type: { type: String, default: 'success' },
 })
